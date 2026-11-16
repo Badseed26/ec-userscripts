@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WRE job packs
 // @namespace    wre
-// @version      0.4.10
+// @version      0.4.11
 // @description  Job pack PDFs for Ambrose jobs. A Job packs button on the AroFlo calendar (above Solar orders) lists the Ambrose jobs booked in the next X days with tick boxes, and a Job pack button sits on each Ambrose task. Run reads the task, pulls the Ambrose site photos and mud map, gets an aerial of the address (Queensland Government photos, or Google with a key), has Haiku pick the photos for the PO rooms, write the job scope and flag anything odd, builds the pack in FieldViser through its API, then puts a share link on top of the task description and the PDF in the task's documents.
 // @match        https://office.aroflo.com/ims/Site/Calendar/*
 // @match        https://office.aroflo.com/ims/Site/Service/workrequest/*
@@ -559,15 +559,70 @@ Answer with JSON only: {"pin_on_house":true,"house_in_frame":"whole","note":""} 
 #wjp a{color:${ORANGE}}
 #wjp .set label{display:block;margin:8px 0 2px;font-weight:600}#wjp .set input,#wjp .set select{width:100%;box-sizing:border-box;padding:6px;border:1px solid #cfc8c2;border-radius:6px}
 #wjp .note{background:#fff;border-radius:10px;padding:10px 12px;margin:0 0 10px}
-#wjp.mob{width:100vw;font-size:15px}#wjp.mob .btn{padding:10px 14px;font-size:15px}`;
+#wjp.mob{width:100vw;font-size:15px;transform-origin:0 0;right:auto;bottom:auto}#wjp.mob .btn{padding:10px 14px;font-size:15px}#wjp.mob .btn.sm{padding:8px 12px;font-size:14px}
+#wjp.mob .top input[type=checkbox]{width:24px;height:24px}
+#wjp-btn.mob{transform-origin:0 0;bottom:auto;padding:12px 18px;font-size:16px}`;
   let P = null, jobs = [], busy = false, showSet = false, onTask = false, taskJob = null;
-  const isMob = () => /iPhone|iPad|Android/i.test(navigator.userAgent) || innerWidth < 700;
+  // ---------- phones (same as Solar orders): sized to what's on screen even on Request Desktop Website or pinched in,
+  // the button sits just above Solar orders, the list fills the screen and the page behind is pinned while it's open ----------
+  const MOBILE = (navigator.maxTouchPoints > 0 && Math.min(screen.width, screen.height) < 700) || /iPhone|iPod|Android.+Mobile/.test(navigator.userAgent);
+  const view = () => { const vv = W.visualViewport || { width: innerWidth, height: innerHeight, offsetLeft: 0, offsetTop: 0 }; const sw = vv.width > vv.height ? Math.max(screen.width, screen.height) : Math.min(screen.width, screen.height); return { vv, sw, k: vv.width / sw }; };
+  function fitEl(el) {
+    if (!MOBILE || !el || !el.isConnected) return;
+    const { vv, sw, k } = view();
+    Object.assign(el.style, { left: vv.offsetLeft + 'px', top: vv.offsetTop + 'px', width: sw + 'px', height: (vv.height / k) + 'px', transform: 'scale(' + k + ')' });
+  }
+  function fitBtn() {
+    const b = document.getElementById('wjp-btn'); if (!MOBILE || !b) return;
+    const { vv, k } = view();
+    Object.assign(b.style, { left: (vv.offsetLeft + 14 * k) + 'px', top: (vv.offsetTop + vv.height - 122 * k) + 'px', transform: 'scale(' + k + ')' });
+  }
+  const fitAll = () => { fitEl(P); fitBtn(); };
+  let locked = null;
+  function lockPage() {
+    if (!MOBILE || locked) return;
+    const b = document.body, h = document.documentElement;
+    locked = { y: W.scrollY || h.scrollTop || 0, x: W.scrollX || 0, b: b.getAttribute('style'), h: h.getAttribute('style') };
+    h.style.overflow = 'hidden';
+    Object.assign(b.style, { position: 'fixed', top: -locked.y + 'px', left: -locked.x + 'px', width: '100%', overflow: 'hidden' });
+  }
+  function unlockPage() {
+    if (!locked) return;
+    const b = document.body, h = document.documentElement, l = locked; locked = null;
+    if (l.b == null) b.removeAttribute('style'); else b.setAttribute('style', l.b);
+    if (l.h == null) h.removeAttribute('style'); else h.setAttribute('style', l.h);
+    W.scrollTo(l.x, l.y);
+  }
+  function guardTouch(bx) {
+    let y0 = 0, x0 = 0;
+    const scroller = t => { for (let e = t; e && e !== bx.parentNode; e = e.parentElement) { const cs = getComputedStyle(e); const v = /(auto|scroll)/.test(cs.overflowY) && e.scrollHeight > e.clientHeight + 1, hz = /(auto|scroll)/.test(cs.overflowX) && e.scrollWidth > e.clientWidth + 1; if (v || hz) return { e, v, hz }; } return null; };
+    bx.addEventListener('touchstart', e => { y0 = e.touches[0].clientY; x0 = e.touches[0].clientX; }, { passive: true });
+    bx.addEventListener('touchmove', e => {
+      const ae = document.activeElement, vv = W.visualViewport;
+      if ((ae && bx.contains(ae) && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName) && ae.type != 'checkbox') || (vv && vv.height < innerHeight * 0.8)) return;
+      const dy = e.touches[0].clientY - y0, dx = e.touches[0].clientX - x0, sc = scroller(e.target);
+      if (!sc) { e.preventDefault(); return; }
+      if (Math.abs(dx) > Math.abs(dy)) { if (!sc.hz) e.preventDefault(); return; }
+      if (!sc.v) { e.preventDefault(); return; }
+      if ((dy > 0 && sc.e.scrollTop <= 0) || (dy < 0 && sc.e.scrollTop + sc.e.clientHeight >= sc.e.scrollHeight - 1)) e.preventDefault();
+    }, { passive: false });
+  }
+  if (MOBILE) { const vv = W.visualViewport; if (vv) { vv.addEventListener('resize', fitAll); vv.addEventListener('scroll', fitAll); } addEventListener('resize', fitAll); addEventListener('orientationchange', () => setTimeout(fitAll, 300)); }
+  function closePanel() { if (P) { P.remove(); P = null; } unlockPage(); const b = document.getElementById('wjp-btn'); if (b) b.style.display = ''; fitBtn(); }
+  function mountBtn(label, onTap) {
+    if (document.getElementById('wjp-btn')) return;
+    const b = document.createElement('button'); b.id = 'wjp-btn'; b.textContent = label; b.onclick = onTap; document.body.appendChild(b);
+    if (MOBILE) { b.classList.add('mob'); fitBtn(); }
+  }
 
   function mountCss() { if (document.getElementById('wjp-css')) return; const s = document.createElement('style'); s.id = 'wjp-css'; s.textContent = CSS; document.head.appendChild(s); }
   function panel() {
     mountCss();
-    if (!P) { P = document.createElement('div'); P.id = 'wjp'; document.body.appendChild(P); P.addEventListener('click', onClick); P.addEventListener('change', onChange); }
-    P.classList.toggle('mob', isMob());
+    if (!P) {
+      P = document.createElement('div'); P.id = 'wjp'; document.body.appendChild(P); P.addEventListener('click', onClick); P.addEventListener('change', onChange);
+      if (MOBILE) { P.classList.add('mob'); lockPage(); guardTouch(P); const b = document.getElementById('wjp-btn'); if (b) b.style.display = 'none'; }
+    }
+    fitEl(P);
     return P;
   }
   function status(t) { if (!P) return; const x = P.querySelector('.hd .st'); if (x) x.textContent = t; }
@@ -687,7 +742,7 @@ Answer with JSON only: {"pin_on_house":true,"house_in_frame":"whole","note":""} 
   async function onClick(e) {
     const b = e.target.closest('[data-a]'); if (!b) return;
     const a = b.dataset.a, jn = b.dataset.jn;
-    if (a == 'close') { P.remove(); P = null; return; }
+    if (a == 'close') return closePanel();
     if (a == 'set') { showSet = !showSet; return drawList(); }
     if (a == 'scan') return scan();
     if (a == 'run') return runTicked();
@@ -725,7 +780,7 @@ Answer with JSON only: {"pin_on_house":true,"house_in_frame":"whole","note":""} 
     if (!/Ambrose Construct/i.test(document.body.textContent || '')) return;
     mountCss();
     onTask = true; taskJob = taskJob || { jn, addr: clean(document.title.replace(/^JN \d+ - \d{6,}[-\w]*\s*-?\s*/, '').replace(/ - Task - AroFlo.*$/, '')) };
-    if (!document.getElementById('wjp-btn')) { const b = document.createElement('button'); b.id = 'wjp-btn'; b.textContent = '📦 Job pack'; b.onclick = () => { if (P) { P.remove(); P = null; } else drawList(); }; document.body.appendChild(b); }
+    mountBtn('📦 Job pack', () => { if (P) closePanel(); else drawList(); });
     if (open) { taskJob.say = ''; drawList(); }
   }
 
@@ -733,9 +788,7 @@ Answer with JSON only: {"pin_on_house":true,"house_in_frame":"whole","note":""} 
   const onCal = /\/Calendar\//i.test(location.pathname);
   if (onCal) {
     mountCss();
-    const b = document.createElement('button'); b.id = 'wjp-btn'; b.textContent = '📦 Job packs';
-    b.onclick = () => { if (P) { P.remove(); P = null; } else { drawList(); if (!jobs.length) scan(); } };
-    document.body.appendChild(b);
+    mountBtn('📦 Job packs', () => { if (P) closePanel(); else { drawList(); if (!jobs.length) scan(); } });
     GM_addValueChangeListener('jpDone', () => { if (P) drawList(); });
     return;
   }
