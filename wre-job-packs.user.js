@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WRE job packs
 // @namespace    wre
-// @version      0.4.9
+// @version      0.4.10
 // @description  Job pack PDFs for Ambrose jobs. A Job packs button on the AroFlo calendar (above Solar orders) lists the Ambrose jobs booked in the next X days with tick boxes, and a Job pack button sits on each Ambrose task. Run reads the task, pulls the Ambrose site photos and mud map, gets an aerial of the address (Queensland Government photos, or Google with a key), has Haiku pick the photos for the PO rooms, write the job scope and flag anything odd, builds the pack in FieldViser through its API, then puts a share link on top of the task description and the PDF in the task's documents.
 // @match        https://office.aroflo.com/ims/Site/Calendar/*
 // @match        https://office.aroflo.com/ims/Site/Service/workrequest/*
@@ -34,7 +34,7 @@
   // Live updates (23/10): Tampermonkey only checks for a new version every few hours. This checks the repo's latest commit every
   // 2 min (free when nothing's changed) and keeps the newest code here, so a push runs on the next page load. If the new code needs
   // a permission this install hasn't got, or this browser won't run it, the built in copy below runs like before.
-  const __wreName = "wre-job-packs", __wreVer = "0.4.9", __wreHave = new Set(["// @connect ambrose-production.s3-ap-southeast-2.amazonaws.com", "// @connect api.anthropic.com", "// @connect api.github.com", "// @connect api.todoist.com", "// @connect ddxqoilvgipf7.cloudfront.net", "// @connect fieldviser.com", "// @connect maps.googleapis.com", "// @connect production-reportapi.ambrosebuilding.com.au", "// @connect raw.githubusercontent.com", "// @connect spatial-gis.information.qld.gov.au", "// @connect spatial-img.information.qld.gov.au", "// @connect testing.fieldviser.com", "// @grant GM_addValueChangeListener", "// @grant GM_getValue", "// @grant GM_openInTab", "// @grant GM_setValue", "// @grant GM_xmlhttpRequest", "// @grant unsafeWindow", "// @grant window.close", "// @match https://office.aroflo.com/ims/Site/Calendar/*", "// @match https://office.aroflo.com/ims/Site/Service/workrequest/*", "// @run-at document-idle"]);
+  const __wreName = "wre-job-packs", __wreVer = "0.4.10", __wreHave = new Set(["// @connect ambrose-production.s3-ap-southeast-2.amazonaws.com", "// @connect api.anthropic.com", "// @connect api.github.com", "// @connect api.todoist.com", "// @connect ddxqoilvgipf7.cloudfront.net", "// @connect fieldviser.com", "// @connect maps.googleapis.com", "// @connect production-reportapi.ambrosebuilding.com.au", "// @connect raw.githubusercontent.com", "// @connect spatial-gis.information.qld.gov.au", "// @connect spatial-img.information.qld.gov.au", "// @connect testing.fieldviser.com", "// @grant GM_addValueChangeListener", "// @grant GM_getValue", "// @grant GM_openInTab", "// @grant GM_setValue", "// @grant GM_xmlhttpRequest", "// @grant unsafeWindow", "// @grant window.close", "// @match https://office.aroflo.com/ims/Site/Calendar/*", "// @match https://office.aroflo.com/ims/Site/Service/workrequest/*", "// @run-at document-idle"]);
   const __wreInfo0 = typeof GM_info != 'undefined' ? GM_info : null;
   const __wreSay = m => { try { console.log('[WRE live update] ' + __wreName + ': ' + m); } catch (e) {} };
   const __wreCmp = (a, b) => { const x = String(a).split('.').map(Number), y = String(b).split('.').map(Number); for (let i = 0; i < Math.max(x.length, y.length); i++) { const d = (x[i] || 0) - (y[i] || 0); if (d) return d; } return 0; };
@@ -85,7 +85,7 @@
   }
   if (window.top === window.self) { __wreCheck(); setInterval(__wreCheck, 2 * 60e3 + 5000); }
   if (__wreLive()) return;
-  // ---------- the built in copy (src/wre-job-packs.js at 0.4.9) ----------
+  // ---------- the built in copy (src/wre-job-packs.js at 0.4.10) ----------
 
 (function () {
   'use strict';
@@ -676,7 +676,7 @@ Answer with JSON only: {"pin_on_house":true,"house_in_frame":"whole","note":""} 
       if (!jobs.length) h += '<div class="note">' + (busy ? 'Loading the Ambrose bookings…' : 'No Ambrose jobs booked in the next ' + s.days + ' days.') + '</div>';
       jobs.forEach(j => {
         h += '<div class="job"><div class="top"><input type="checkbox" data-tick="' + j.jn + '"' + (j.tick ? ' checked' : '') + (busy ? ' disabled' : '') + '><div style="flex:1"><div><span class="ad">' + esc(j.addr) + '</span>' + chipOf(j) + '</div>' +
-          '<div class="sub">JN ' + j.jn + '</div>' + visHtml(j) + (j.say ? '<div class="say">' + esc(j.say) + '</div>' : '') + (j.err ? '<div class="sub" style="color:#a12">' + esc(j.err) + '</div>' : '') + resultHtml(j.jn) + '</div></div></div>';
+          '<div class="sub">JN ' + j.jn + ' <button class="btn sm ghost" style="margin-left:6px" data-a="open" data-jn="' + j.jn + '">Open task</button></div>' + visHtml(j) + (j.say ? '<div class="say">' + esc(j.say) + '</div>' : '') + (j.err ? '<div class="sub" style="color:#a12">' + esc(j.err) + '</div>' : '') + resultHtml(j.jn) + '</div></div></div>';
       });
     } else if (taskJob) {
       const j = taskJob;
@@ -752,6 +752,8 @@ Answer with JSON only: {"pin_on_house":true,"house_in_frame":"whole","note":""} 
     if (a == 'scan') return scan();
     if (a == 'run') return runTicked();
     if (a == 'one') return runHere();
+    // the AroFlo task in its own tab, through Tampermonkey so the popup blocker leaves it alone (Ethan, 16/11)
+    if (a == 'open') { try { const h = await taskHref(jn); if (!h) throw new Error('couldn\'t find JN ' + jn + ' in AroFlo'); GM_openInTab(new URL(h, location.origin).href, { active: true, insert: true, setParent: true }); } catch (err) { status(err.message); } return; }
     const j = onTask ? taskJob : jobs.find(x => x.jn == jn);
     const say = t => { if (j) { j.say = t; } status(t); drawList(); };
     try {
