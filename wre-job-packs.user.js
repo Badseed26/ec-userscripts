@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WRE job packs
 // @namespace    wre
-// @version      0.4.4
+// @version      0.4.5
 // @description  Job pack PDFs for Ambrose jobs. A Job packs button on the AroFlo calendar (above Solar orders) lists the Ambrose jobs booked in the next X days with tick boxes, and a Job pack button sits on each Ambrose task. Run reads the task, pulls the Ambrose site photos and mud map, gets an aerial of the address (Queensland Government photos, or Google with a key), has Haiku pick the photos for the PO rooms, write the job scope and flag anything odd, builds the pack in FieldViser through its API, then puts a share link on top of the task description and the PDF in the task's documents.
 // @match        https://office.aroflo.com/ims/Site/Calendar/*
 // @match        https://office.aroflo.com/ims/Site/Service/workrequest/*
@@ -34,7 +34,7 @@
   // Live updates (23/10): Tampermonkey only checks for a new version every few hours. This checks the repo's latest commit every
   // 2 min (free when nothing's changed) and keeps the newest code here, so a push runs on the next page load. If the new code needs
   // a permission this install hasn't got, or this browser won't run it, the built in copy below runs like before.
-  const __wreName = "wre-job-packs", __wreVer = "0.4.4", __wreHave = new Set(["// @connect ambrose-production.s3-ap-southeast-2.amazonaws.com", "// @connect api.anthropic.com", "// @connect api.github.com", "// @connect api.todoist.com", "// @connect ddxqoilvgipf7.cloudfront.net", "// @connect fieldviser.com", "// @connect maps.googleapis.com", "// @connect production-reportapi.ambrosebuilding.com.au", "// @connect raw.githubusercontent.com", "// @connect spatial-gis.information.qld.gov.au", "// @connect spatial-img.information.qld.gov.au", "// @connect testing.fieldviser.com", "// @grant GM_addValueChangeListener", "// @grant GM_getValue", "// @grant GM_openInTab", "// @grant GM_setValue", "// @grant GM_xmlhttpRequest", "// @grant unsafeWindow", "// @grant window.close", "// @match https://office.aroflo.com/ims/Site/Calendar/*", "// @match https://office.aroflo.com/ims/Site/Service/workrequest/*", "// @run-at document-idle"]);
+  const __wreName = "wre-job-packs", __wreVer = "0.4.5", __wreHave = new Set(["// @connect ambrose-production.s3-ap-southeast-2.amazonaws.com", "// @connect api.anthropic.com", "// @connect api.github.com", "// @connect api.todoist.com", "// @connect ddxqoilvgipf7.cloudfront.net", "// @connect fieldviser.com", "// @connect maps.googleapis.com", "// @connect production-reportapi.ambrosebuilding.com.au", "// @connect raw.githubusercontent.com", "// @connect spatial-gis.information.qld.gov.au", "// @connect spatial-img.information.qld.gov.au", "// @connect testing.fieldviser.com", "// @grant GM_addValueChangeListener", "// @grant GM_getValue", "// @grant GM_openInTab", "// @grant GM_setValue", "// @grant GM_xmlhttpRequest", "// @grant unsafeWindow", "// @grant window.close", "// @match https://office.aroflo.com/ims/Site/Calendar/*", "// @match https://office.aroflo.com/ims/Site/Service/workrequest/*", "// @run-at document-idle"]);
   const __wreInfo0 = typeof GM_info != 'undefined' ? GM_info : null;
   const __wreSay = m => { try { console.log('[WRE live update] ' + __wreName + ': ' + m); } catch (e) {} };
   const __wreCmp = (a, b) => { const x = String(a).split('.').map(Number), y = String(b).split('.').map(Number); for (let i = 0; i < Math.max(x.length, y.length); i++) { const d = (x[i] || 0) - (y[i] || 0); if (d) return d; } return 0; };
@@ -85,7 +85,7 @@
   }
   if (window.top === window.self) { __wreCheck(); setInterval(__wreCheck, 2 * 60e3 + 5000); }
   if (__wreLive()) return;
-  // ---------- the built in copy (src/wre-job-packs.js at 0.4.4) ----------
+  // ---------- the built in copy (src/wre-job-packs.js at 0.4.5) ----------
 
 (function () {
   'use strict';
@@ -504,10 +504,10 @@ Answer with JSON only: {"pin_on_house":true,"house_in_frame":"whole","note":""} 
   };
   const hasDoc = (list, name) => !!list && list.toLowerCase().includes(name.toLowerCase().replace(/\.pdf$/, ''));
 
-  // the description line is JOB PACK in bold, the words themselves the link (Ethan, 16/11). Older lines (JOB PACK: <address>) come off.
+  // the description line is JOB PACK in bold at 16px, the words themselves the link (Ethan, 16/11). Older lines (JOB PACK: <address>) come off.
   const packUrl = push => String(push.line || '').replace(/^JOB PACK:?\s*/, '');
   const linkOnTop = (h, url) => { const d = html(h); const f = [...d.body.children].find(e => clean(e.textContent)); const a = f && f.querySelector('a');
-    return !!(f && a && clean(f.textContent) == 'JOB PACK' && a.getAttribute('href') == url && f.querySelector('strong,b')); };
+    return !!(f && a && clean(f.textContent) == 'JOB PACK' && a.getAttribute('href') == url && f.querySelector('strong,b') && /font-size:\s*16px/i.test(f.innerHTML)); };
   // op = {jn, step: 'desc' | 'up', fired, bg}
   function opEnd(op, res) {
     const s = jst(op.jn) || {};
@@ -541,7 +541,7 @@ Answer with JSON only: {"pin_on_house":true,"house_in_frame":"whole","note":""} 
         // an older JOB PACK line (a revoked link) comes off so there's only ever one
         const tmp = html(old); [...tmp.body.children].filter(e => /^\s*JOB PACK\b/i.test(e.textContent || '')).forEach(e => e.remove());
         const rest = tmp.body.innerHTML;
-        const want = '<p><strong><a href="' + esc(packUrl(push)) + '">JOB PACK</a></strong></p>' + rest;
+        const want = '<p><span style="font-size:16px"><strong><a href="' + esc(packUrl(push)) + '">JOB PACK</a></strong></span></p>' + rest;
         await setData(ed, want);
         const nw = plain(ed.getData());
         const ok = linkOnTop(ed.getData(), packUrl(push)) && nw.endsWith(plain(rest)) && hdrFields() == f0;

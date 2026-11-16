@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WRE job packs
 // @namespace    wre
-// @version      0.4.4
+// @version      0.4.5
 // @description  Job pack PDFs for Ambrose jobs. A Job packs button on the AroFlo calendar (above Solar orders) lists the Ambrose jobs booked in the next X days with tick boxes, and a Job pack button sits on each Ambrose task. Run reads the task, pulls the Ambrose site photos and mud map, gets an aerial of the address (Queensland Government photos, or Google with a key), has Haiku pick the photos for the PO rooms, write the job scope and flag anything odd, builds the pack in FieldViser through its API, then puts a share link on top of the task description and the PDF in the task's documents.
 // @match        https://office.aroflo.com/ims/Site/Calendar/*
 // @match        https://office.aroflo.com/ims/Site/Service/workrequest/*
@@ -444,10 +444,10 @@ Answer with JSON only: {"pin_on_house":true,"house_in_frame":"whole","note":""} 
   };
   const hasDoc = (list, name) => !!list && list.toLowerCase().includes(name.toLowerCase().replace(/\.pdf$/, ''));
 
-  // the description line is JOB PACK in bold, the words themselves the link (Ethan, 16/11). Older lines (JOB PACK: <address>) come off.
+  // the description line is JOB PACK in bold at 16px, the words themselves the link (Ethan, 16/11). Older lines (JOB PACK: <address>) come off.
   const packUrl = push => String(push.line || '').replace(/^JOB PACK:?\s*/, '');
   const linkOnTop = (h, url) => { const d = html(h); const f = [...d.body.children].find(e => clean(e.textContent)); const a = f && f.querySelector('a');
-    return !!(f && a && clean(f.textContent) == 'JOB PACK' && a.getAttribute('href') == url && f.querySelector('strong,b')); };
+    return !!(f && a && clean(f.textContent) == 'JOB PACK' && a.getAttribute('href') == url && f.querySelector('strong,b') && /font-size:\s*16px/i.test(f.innerHTML)); };
   // op = {jn, step: 'desc' | 'up', fired, bg}
   function opEnd(op, res) {
     const s = jst(op.jn) || {};
@@ -481,7 +481,7 @@ Answer with JSON only: {"pin_on_house":true,"house_in_frame":"whole","note":""} 
         // an older JOB PACK line (a revoked link) comes off so there's only ever one
         const tmp = html(old); [...tmp.body.children].filter(e => /^\s*JOB PACK\b/i.test(e.textContent || '')).forEach(e => e.remove());
         const rest = tmp.body.innerHTML;
-        const want = '<p><strong><a href="' + esc(packUrl(push)) + '">JOB PACK</a></strong></p>' + rest;
+        const want = '<p><span style="font-size:16px"><strong><a href="' + esc(packUrl(push)) + '">JOB PACK</a></strong></span></p>' + rest;
         await setData(ed, want);
         const nw = plain(ed.getData());
         const ok = linkOnTop(ed.getData(), packUrl(push)) && nw.endsWith(plain(rest)) && hdrFields() == f0;
