@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WRE job packs
 // @namespace    wre
-// @version      0.4.1
+// @version      0.4.2
 // @description  Job pack PDFs for Ambrose jobs. A Job packs button on the AroFlo calendar (above Solar orders) lists the Ambrose jobs booked in the next X days with tick boxes, and a Job pack button sits on each Ambrose task. Run reads the task, pulls the Ambrose site photos and mud map, gets an aerial of the address (Queensland Government photos, or Google with a key), has Haiku pick the photos for the PO rooms, write the job scope and flag anything odd, builds the pack in FieldViser through its API, then puts a share link on top of the task description and the PDF in the task's documents.
 // @match        https://office.aroflo.com/ims/Site/Calendar/*
 // @match        https://office.aroflo.com/ims/Site/Service/workrequest/*
@@ -426,8 +426,16 @@ Answer with JSON only: {"pin_on_house":true,"house_in_frame":"whole","note":""} 
   const ckReady = name => waitFor(() => !!(W.CKEDITOR && W.CKEDITOR.instances[name] && W.CKEDITOR.instances[name].status == 'ready'), 15000);
   const setData = (ed, h) => new Promise(r => { ed.setData(h, { callback: r }); setTimeout(r, 2500); });
   const hdrFields = () => { const f = document.forms.editwr; return f ? [...f.elements].filter(e => e.name && !/^(hidden|button|submit)$/.test(e.type) && !/^(description|thisnote)$/.test(e.name)).map(e => e.name + '=' + (/radio|checkbox/.test(e.type) ? e.checked : e.value)).join('|') : ''; };
-  const isHeader = () => /^Edit - JN/.test(document.title) || !!document.getElementById('updateheader__btn');
-  const isTask = () => / - Task - AroFlo/.test(document.title) || !!document.getElementById('btnAddNoteHTML');
+  // the header page has its own note box (btnAddNoteHTML), so it's checked first or it reads as the task page (JN 9501, 16/11)
+  const isHeader = () => /^Edit - JN/.test(document.title) || !!document.getElementById('updateheader__btn') || /[?&]editwr=1/.test(location.search);
+  const isTask = () => !isHeader() && (/ - Task - AroFlo/.test(document.title) || !!document.getElementById('btnAddNoteHTML'));
+  // the task's Edit Task Header page: its link if the page has one, else built off the task's own wrCoded (same address AroFlo uses)
+  const headerHref = () => {
+    const a = [...document.querySelectorAll('a')].find(e => /Edit Task Header/i.test(e.textContent || '') && /editwr=/i.test(e.getAttribute('href') || ''));
+    if (a) return a.getAttribute('href');
+    const wc = new URLSearchParams(location.search).get('wrCoded');
+    return wc ? '/ims/Site/Service/workrequest/index.cfm?editwr=1&wrCoded=' + encodeURIComponent(wc) : '';
+  };
   const thisJn = () => (document.title.match(/\bJN (\d+)/) || [])[1] || '';
   const taskDocs = async () => {
     const wc = new URLSearchParams(location.search).get('wrCoded'); if (!wc) return null;
@@ -455,12 +463,12 @@ Answer with JSON only: {"pin_on_house":true,"house_in_frame":"whole","note":""} 
     if (op.step == 'desc') {
       if (!op.fired) {
         if (isTask()) { // read the description off the header page first, only go there if the line isn't on yet
-          const a = [...document.querySelectorAll('a')].find(e => /^\s*Edit Task Header\s*$/i.test(e.textContent || ''));
-          if (!a) return opEnd(op, { err: 'no Edit Task Header link on the task' });
-          const d2 = html(await afText(a.getAttribute('href')));
+          const hh = headerHref();
+          if (!hh) return opEnd(op, { err: 'couldn\'t work out the Edit Task Header page' });
+          const d2 = html(await afText(hh));
           const cur = ((d2.querySelector('textarea[name=description]') || {}).value) || '';
           if (plain(cur).includes(push.line.replace(/^JOB PACK: /, ''))) { op.step = 'up'; op.desc = 'already there'; ss('jpOp', op); return runOp(); }
-          ss('jpOp', op); location.href = a.getAttribute('href'); return;
+          ss('jpOp', op); location.href = hh; return;
         }
         if (!isHeader()) return opEnd(op, { err: 'landed on "' + document.title.slice(0, 40) + '"' });
         if (thisJn() && thisJn() != op.jn) return opEnd(op, { err: 'header page is JN ' + thisJn() + ', not ' + op.jn + ', nothing saved' });
@@ -686,7 +694,7 @@ Answer with JSON only: {"pin_on_house":true,"house_in_frame":"whole","note":""} 
   }
   function startOp(jn) { setJst(jn, { pushed: null }); ss('jpOp', { jn, step: 'desc', fired: false, bg: false }); runOp(); }
   function taskButton(open) {
-    const jn = thisJn(); if (!jn) return;
+    const jn = thisJn(); if (!jn || isHeader()) return;
     if (!/Ambrose Construct/i.test(document.body.textContent || '')) return;
     mountCss();
     onTask = true; taskJob = taskJob || { jn, addr: clean(document.title.replace(/^JN \d+ - \d{6,}[-\w]*\s*-?\s*/, '').replace(/ - Task - AroFlo.*$/, '')) };
