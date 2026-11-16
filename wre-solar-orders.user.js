@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WRE solar orders
 // @namespace    wre
-// @version      0.1
+// @version      0.2
 // @description  Solar orders button on the AroFlo calendar: lists the solar replacement jobs booked in the next X days with the lads' notes, the PO, photos and your notes, works out the panels and inverter from the label photos and notes (Haiku sorts the photos, Opus reads them), adds rails and TIN kits by rule, matches it all on Tradezone with Gold Coast stock, runs a checklist, keeps approved orders in Todoist and loads one job at a time into the Tradezone cart with the PO ref. Never orders, you do that.
 // @match        https://office.aroflo.com/ims/Site/Calendar/*
 // @grant        GM_xmlhttpRequest
@@ -23,7 +23,7 @@
   // Live updates (23/10): Tampermonkey only checks for a new version every few hours. This checks the repo's latest commit every
   // 2 min (free when nothing's changed) and keeps the newest code here, so a push runs on the next page load. If the new code needs
   // a permission this install hasn't got, or this browser won't run it, the built in copy below runs like before.
-  const __wreName = "wre-solar-orders", __wreVer = "0.1", __wreHave = new Set(["// @connect api.anthropic.com", "// @connect api.github.com", "// @connect api.todoist.com", "// @connect raw.githubusercontent.com", "// @connect www.tradezone.com.au", "// @grant GM_getValue", "// @grant GM_setValue", "// @grant GM_xmlhttpRequest", "// @grant unsafeWindow", "// @match https://office.aroflo.com/ims/Site/Calendar/*", "// @run-at document-idle"]);
+  const __wreName = "wre-solar-orders", __wreVer = "0.2", __wreHave = new Set(["// @connect api.anthropic.com", "// @connect api.github.com", "// @connect api.todoist.com", "// @connect raw.githubusercontent.com", "// @connect www.tradezone.com.au", "// @grant GM_getValue", "// @grant GM_setValue", "// @grant GM_xmlhttpRequest", "// @grant unsafeWindow", "// @match https://office.aroflo.com/ims/Site/Calendar/*", "// @run-at document-idle"]);
   const __wreInfo0 = typeof GM_info != 'undefined' ? GM_info : null;
   const __wreSay = m => { try { console.log('[WRE live update] ' + __wreName + ': ' + m); } catch (e) {} };
   const __wreCmp = (a, b) => { const x = String(a).split('.').map(Number), y = String(b).split('.').map(Number); for (let i = 0; i < Math.max(x.length, y.length); i++) { const d = (x[i] || 0) - (y[i] || 0); if (d) return d; } return 0; };
@@ -74,7 +74,7 @@
   }
   if (window.top === window.self) { __wreCheck(); setInterval(__wreCheck, 2 * 60e3 + 5000); }
   if (__wreLive()) return;
-  // ---------- the built in copy (src/wre-solar-orders.js at 0.1) ----------
+  // ---------- the built in copy (src/wre-solar-orders.js at 0.2) ----------
 
 (function () {
   'use strict';
@@ -132,9 +132,12 @@
     GM_setValue('jobs', ST); }, 300); };
   const touch = w => { st(w).at = Date.now(); save(); };
   // remembered product picks: what you swapped to for a need, used first next time
-  const learn = () => GM_getValue('learn', {});
-  const learnKey = s => clean(s).toLowerCase().replace(/[^a-z0-9.]/g, ' ').replace(/\s+/g, ' ').trim();
-  const remember = (need, it) => { const m = learn(); m[learnKey(need)] = { code: it.code, id: it.id, at: Date.now() }; GM_setValue('learn', m); };
+  // keyed on the brand and the numbers (watts, kW), so "Jinko 475W panel" and "jinko 475 mono" are the same pick
+  const BRANDS = /\b(jinko|rec|trina|longi|risen|canadian|ja ?solar|q ?cells|seraphim|sunpower|aiko|tongwei|sungrow|fronius|goodwe|sma|growatt|solis|enphase|huawei|solaredge|aurora|power-?one|abb|delta|tigo)\b/;
+  const learnKey = s => { const t = clean(s).toLowerCase(); const b = (t.match(BRANDS) || [])[1]; const n = (t.match(/\d+(?:\.\d+)?/g) || []).map(x => String(+x)); return b && n.length ? b.replace(/\s/g, '') + ' ' + n[0] : t.replace(/[^a-z0-9.]/g, ' ').replace(/\s+/g, ' ').trim(); };
+  const SEED = { 'jinko 475': { code: 'JKM475N-48QL6-DV-F2-OC', at: 0 } };   // Ethan's usual Jinko 475 (16/11)
+  const learn = () => Object.assign({}, SEED, GM_getValue('learn', {}));
+  const remember = (need, it) => { const m = GM_getValue('learn', {}); m[learnKey(need)] = { code: it.code, id: it.id, at: Date.now() }; GM_setValue('learn', m); };
   const monthKey = () => new Date().toISOString().slice(0, 7);
   const addCost = usd => { const c = GM_getValue('cost', {}); c[monthKey()] = (c[monthKey()] || 0) + usd; GM_setValue('cost', c); };
   const monthCost = () => (GM_getValue('cost', {})[monthKey()] || 0);
@@ -364,13 +367,14 @@ Answer with JSON only:
       const a = el.querySelector('.name a') || el.querySelector('a.hover_link') || el.querySelector('a.product-image');
       const m = clean(el.textContent).match(/\$\s*([\d,]+\.\d{2})\s*ex/i);
       const stk = el.querySelector('.stock_wrapper');
-      const img = el.querySelector('a.product-image img');
-      items.push({ id, code: clean((el.querySelector('h6.part') || {}).textContent), name: clean(a && (a.getAttribute('title') || a.textContent)) || clean((img || { getAttribute: () => '' }).getAttribute('alt')),
-        href: a ? new URL(a.getAttribute('href'), TZ).href : '', price: m ? Number(m[1].replace(/,/g, '')) : null, stock: stk ? clean(stk.textContent) : '', img: img ? (img.getAttribute('data-src') || img.getAttribute('src') || '') : '' });
+      items.push({ id, code: clean((el.querySelector('h6.part') || {}).textContent), name: clean(a && (a.getAttribute('title') || a.textContent)) || clean((el.querySelector('img[alt]') || { getAttribute: () => '' }).getAttribute('alt')),
+        href: a ? new URL(a.getAttribute('href'), TZ).href : '', price: m ? Number(m[1].replace(/,/g, '')) : null, stock: stk ? clean(stk.textContent) : '', img: imgOf(el, 'a.product-image img') });
     });
     sCache[k] = { at: Date.now(), r: items };
     return items;
   }
+  // the product photo off a card (lazy loaded ones keep the real address in data-src), same as the supplier window
+  const imgOf = (el, prefer) => { if (!el) return ''; const i = (prefer && el.querySelector(prefer)) || el.querySelector('img'); if (!i) return ''; const u = ['data-src', 'data-original', 'data-lazy', 'data-srcset', 'srcset', 'src'].map(a => (i.getAttribute(a) || '').split(',')[0].trim().split(' ')[0]).find(x => x && !/^data:|placeholder|loading|blank|spacer|\.gif$/i.test(x)) || ''; try { return u ? new URL(u, TZ).href : ''; } catch (e) { return ''; } };
   // a product page has the stock per branch
   async function tzStock(it) {
     if (!it || !it.href || it.bq != null) return;
@@ -383,6 +387,7 @@ Answer with JSON only:
     });
     const b = rows.find(x => x.name.toLowerCase() == want) || rows.find(x => x.name.toLowerCase().includes(want));
     it.bq = b ? b.qty : (rows.length ? 0 : null);
+    if (!it.img) { const og = d.querySelector('meta[property="og:image"]'); if (og) it.img = og.getAttribute('content') || ''; }
     if (!it.price) { const m = clean((d.querySelector('.price_and_points') || {}).textContent).match(/\$\s*([\d,]+\.\d{2})\s*ex/i); if (m) it.price = Number(m[1].replace(/,/g, '')); }
   }
   // closest result for a need: the numbers (watts, kW) and the words have to line up
@@ -393,6 +398,7 @@ Answer with JSON only:
     (n.match(/[a-z]{3,}/g) || []).forEach(w => { if (!/^(panel|panels|solar|inverter|with|for|the|and|phase|single|watt|mono)$/.test(w) && t.includes(w)) s += 1; });
     if (/three|3 ?phase/.test(n) == /three|3 ?phase/.test(t)) s += 1;
     if (x.price) s += 0.5;
+    if (/clearance|run ?out|discontinued|ex ?display|second|damaged|b ?grade/i.test(t)) s -= 20;   // never the clearance lines unless that's all there is
     return s;
   }
   async function match(line) {
@@ -405,9 +411,16 @@ Answer with JSON only:
       r.forEach(x => { if (!cand.find(y => y.id == x.id)) cand.push(x); });
       if (cand.length >= 8) break;
     }
-    cand = cand.map(x => ({ x, s: score(line.need, terms, x) })).sort((a, b) => b.s - a.s).map(c => c.x).slice(0, 8);
+    const sc = cand.map(x => ({ x, s: score(line.need, terms, x) })).sort((a, b) => b.s - a.s);
+    cand = sc.map(c => c.x).slice(0, 8);
     line.cand = cand;
-    if (!line.pick) { line.pick = cand[0] || null; line.how = cand[0] ? 'best match' : ''; }
+    if (!line.pick) {
+      // the top few with a close score: take the first with enough at your branch, else the top one
+      const top = sc.filter(c => c.s >= (sc[0] ? sc[0].s - 1.5 : 0)).slice(0, 4).map(c => c.x);
+      await pool(top, 4, x => tzStock(x).catch(() => {}));
+      line.pick = top.find(x => x.bq != null && x.bq >= line.qty) || cand[0] || null;
+      line.how = line.pick ? 'best match' : '';
+    }
     await tzStock(line.pick).catch(() => {});
   }
   async function byCode(code) {
@@ -640,7 +653,20 @@ Answer with JSON only:
 #wso textarea,#wso .in{width:100%;border:1px solid #ccc;border-radius:6px;padding:6px 8px;font:13px -apple-system,Segoe UI,sans-serif}
 #wso .ln{display:flex;gap:8px;align-items:flex-start;border-bottom:1px solid #eee;padding:6px 0}
 #wso .ln input.q{width:56px;padding:4px;border:1px solid #ccc;border-radius:6px}
-#wso .ln .t{flex:1;min-width:0}#wso .ln select{max-width:100%;font-size:12px;margin-top:3px}
+#wso .ln .t{flex:1;min-width:0}#wso .btn.sm{padding:4px 10px;font-size:12px;margin-top:4px}
+#wso .th,#wso-pk .th{width:56px;height:56px;object-fit:contain;border-radius:6px;background:#fff;border:1px solid #eee;flex:0 0 56px;cursor:pointer}
+#wso .th.none,#wso-pk .th.none{display:flex;align-items:center;justify-content:center;font-size:10.5px;color:#999}
+#wso-pk{position:fixed;inset:0;z-index:2147483002;background:#0007;display:flex;align-items:center;justify-content:center;font:14px/1.4 -apple-system,Segoe UI,sans-serif;color:#222}
+#wso-pk *{box-sizing:border-box}
+#wso-pk .pw{background:#f6f4f2;border-radius:12px;width:min(760px,100vw);height:min(86vh,100vh);display:flex;flex-direction:column;padding:12px;box-shadow:0 6px 24px #0006}
+#wso-pk .ph2{display:flex;align-items:center;gap:8px;margin-bottom:8px}#wso-pk .ph2 b{flex:1;font-size:15px}
+#wso-pk .row{display:flex;gap:8px;align-items:center}
+#wso-pk .in{border:1px solid #ccc;border-radius:6px;padding:7px 8px;font:14px -apple-system,Segoe UI,sans-serif}
+#wso-pk .btn{background:${ORANGE};color:#fff;border:0;border-radius:8px;padding:7px 12px;font:600 13px -apple-system,Segoe UI,sans-serif;cursor:pointer;white-space:nowrap}#wso-pk .btn.grey{background:#8a827c}
+#wso-pk .pl{flex:1;overflow:auto}
+#wso-pk .pr{display:flex;gap:10px;align-items:center;background:#fff;border-radius:8px;padding:8px;margin-bottom:6px;border:2px solid transparent}
+#wso-pk .pr.cur{border-color:${ORANGE}}#wso-pk .pr .th{width:72px;height:72px;flex-basis:72px;cursor:default}#wso-pk .pr .t{flex:1;min-width:0}
+#wso-pk .sub{color:#666;font-size:12.5px}#wso-pk .ok{color:#21703b;font-weight:600}#wso-pk .red{color:#a11;font-weight:600}
 #wso .ln .x{background:none;border:0;color:#a11;font-size:18px;cursor:pointer}
 #wso .inf{color:#a94c08;font-weight:600}#wso .red{color:#a11;font-weight:600}#wso .ok{color:#21703b;font-weight:600}
 #wso .ck{display:flex;gap:8px;align-items:flex-start;padding:3px 0;font-size:13px}
@@ -655,7 +681,7 @@ Answer with JSON only:
 #wso-lb button{background:#fff;color:${GREY};border:0;border-radius:8px;padding:8px 12px;font:600 13px -apple-system,Segoe UI,sans-serif;cursor:pointer}
 #wso-lb button.on{background:${ORANGE};color:#fff}
 #wso .set input{width:100%;margin:2px 0 8px}`;
-  let P = null, open = {}, showSet = false, searchFor = null;
+  let P = null, open = {}, showSet = false;
   function mount() {
     if (document.getElementById('wso-btn')) return;
     const st_ = document.createElement('style'); st_.textContent = CSS; document.head.appendChild(st_);
@@ -736,13 +762,12 @@ Tradezone branch <select class="in" data-set="branch">${Object.keys(TZLOC).map(b
     h += `<h4>Order (Tradezone ${esc(S().branch)})</h4>`;
     s.lines.forEach((l, i) => {
       const x = l.pick;
-      h += `<div class="ln"><input class="q" type="number" min="1" data-q="${i}" value="${l.qty}"><div class="t">`;
-      h += x ? `<div><b>${esc(x.name)}</b></div><div class="sub">${esc(x.code)} · ${x.price ? money(x.price) + ' ex' : 'no price'} · ${x.bq == null ? esc(x.stock || 'stock ?') : (x.bq >= l.qty ? '<span class="ok">' : '<span class="red">') + esc(S().branch) + ' ' + x.bq + '</span>'}</div>` : `<div class="red">No Tradezone match for ${esc(l.need)}</div>`;
+      h += `<div class="ln"><input class="q" type="number" min="1" data-q="${i}" value="${l.qty}">${thumb(x, 'pickwin', i)}<div class="t">`;
+      h += x ? `<div><b>${esc(x.name)}</b></div><div class="sub">${esc(x.code)} · ${x.price ? money(x.price) + ' ex' : 'no price'} · ${stockTxt(x, l.qty)}</div>` : `<div class="red">No Tradezone match for ${esc(l.need)}</div>`;
       h += `<div class="sub">${esc(l.need)}${l.source ? ' · from ' + esc(l.source) : ''}${l.inferred ? ' · <span class="inf">inferred</span>' : ''}</div>`;
-      if ((l.cand || []).length > 1) h += `<select data-sw="${i}">${l.cand.map((c, k) => `<option value="${k}" ${x && c.id == x.id ? 'selected' : ''}>${esc(c.code + ' · ' + c.name.slice(0, 60) + (c.price ? ' · ' + money(c.price) : ''))}</option>`).join('')}</select>`;
-      h += ` <a href="#" data-a="srch" data-i="${i}" class="sub">search</a>${searchFor && searchFor.w == j.wrid && searchFor.i == i ? srchHtml() : ''}</div><button class="x" data-a="del" data-i="${i}" title="Remove">×</button></div>`;
+      h += `<button class="btn ghost sm" data-a="pickwin" data-i="${i}">Change${(l.cand || []).length > 1 ? ' (' + l.cand.length + ' options)' : ''}</button></div><button class="x" data-a="del" data-i="${i}" title="Remove">×</button></div>`;
     });
-    h += `<div class="row"><a href="#" data-a="srch" data-i="new" class="sub">+ add a line</a></div>${searchFor && searchFor.w == j.wrid && searchFor.i == 'new' ? srchHtml() : ''}`;
+    h += `<div class="row"><button class="btn ghost sm" data-a="pickwin" data-i="new">+ Add a line</button></div>`;
     h += `<div class="row"><b>Total ${money(total(s))} ex GST</b></div>`;
     // checklist
     const ck = checks(j), done = s.checked || {};
@@ -756,9 +781,44 @@ Tradezone branch <select class="in" data-set="branch">${Object.keys(TZLOC).map(b
     if (b.length) h += `<div class="sub" style="margin-top:4px">Before the cart: ${esc(b.join(', '))}.</div>`;
     return h + '</div>';
   }
-  let srch = { q: '', res: [], busy: false, err: '' };
-  const srchHtml = () => `<div style="margin-top:4px"><input class="in" data-f="srch" placeholder="Search Tradezone" value="${esc(srch.q)}"> ${srch.busy ? '<span class="sub">Searching…</span>' : ''}${srch.err ? '<span class="red">' + esc(srch.err) + '</span>' : ''}
-<div class="res">${srch.res.map((x, k) => `<div data-a="pick" data-k="${k}"><b>${esc(x.code)}</b> ${esc(x.name)} ${x.price ? money(x.price) + ' ex' : ''} <span class="sub">${esc(x.stock)}</span></div>`).join('')}</div></div>`;
+  const thumb = (x, act, i) => x && x.img ? `<img class="th" src="${esc(x.img)}" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.visibility='hidden'"${act ? ` data-a="${act}" data-i="${i}"` : ''}>` : `<div class="th none"${act ? ` data-a="${act}" data-i="${i}"` : ''}>no pic</div>`;
+  const stockTxt = (x, q) => x.bq == null ? esc(x.stock || 'stock ?') : '<span class="' + (x.bq >= (q || 1) ? 'ok' : 'red') + '">' + esc(S().branch) + ' ' + x.bq + '</span>';
+
+  // the product picker: a proper window with pics, price and branch stock, like the quote one. i is the line, or 'new' to add one.
+  function picker(job, i) {
+    const s = st(job.wrid), l = i === 'new' ? null : s.lines[i];
+    const k = { q: l ? ((l.terms || [])[0] || l.need) : '', res: l ? (l.cand || []).slice() : [], busy: false, err: '', qty: l ? l.qty : 1 };
+    if (l && l.pick && !k.res.find(c => c.id == l.pick.id)) k.res.unshift(l.pick);
+    const pk = document.createElement('div'); pk.id = 'wso-pk'; document.body.appendChild(pk);
+    const close = () => { pk.remove(); draw(job.wrid); };
+    const list = () => pk.querySelector('.pl');
+    const rows = () => k.res.map((x, n) => `<div class="pr${l && l.pick && x.id == l.pick.id ? ' cur' : ''}">${thumb(x)}<div class="t"><div><b>${esc(x.name)}</b></div>
+<div class="sub">${esc(x.code)} · ${x.price ? money(x.price) + ' ex' : 'no price'} · ${stockTxt(x, k.qty)}${x.href ? ` · <a href="${esc(x.href)}" target="_blank">view</a>` : ''}</div></div>
+<button class="btn" data-use="${n}">${l && l.pick && x.id == l.pick.id ? 'Using' : 'Use this'}</button></div>`).join('') || `<div class="sub" style="padding:12px">${k.busy ? 'Searching…' : 'No results. Try another search.'}</div>`;
+    const paint = () => { list().innerHTML = rows(); pk.querySelector('.ps').textContent = k.busy ? 'Searching…' : k.err || ''; };
+    // branch stock for what's showing, a few at a time, repainting as it comes in
+    const stock = () => pool(k.res.filter(x => x.bq == null).slice(0, 12), 4, x => tzStock(x).then(() => { if (document.getElementById('wso-pk') === pk) paint(); }).catch(() => {}));
+    const go = async () => { if (!clean(k.q)) return; k.busy = true; k.err = ''; paint(); try { k.res = (await searchTz(clean(k.q))).slice(0, 24); } catch (e) { k.err = e.message; k.res = []; } k.busy = false; paint(); stock(); };
+    pk.innerHTML = `<div class="pw"><div class="ph2"><b>${l ? 'Pick for: ' + esc(l.need) + ' (' + l.qty + ')' : 'Add a line'}</b><button class="btn grey" data-x="1">✕</button></div>
+<div class="row" style="margin:0 0 8px"><input class="in" style="flex:1" placeholder="Search Tradezone" value="${esc(k.q)}"><button class="btn" data-s="1">Search</button></div>
+<div class="sub ps"></div><div class="pl"></div></div>`;
+    const inp = pk.querySelector('input');
+    inp.onkeydown = e => { if (e.key == 'Enter') { k.q = inp.value; go(); } if (e.key == 'Escape') close(); };
+    pk.onclick = async e => {
+      const t = e.target;
+      if (t === pk || t.dataset.x) return close();
+      if (t.dataset.s) { k.q = inp.value; return go(); }
+      if (t.dataset.use != null) {
+        const x = k.res[+t.dataset.use]; if (!x) return;
+        if (x.bq == null) await tzStock(x).catch(() => {});
+        if (!l) s.lines.push({ kind: 'extra', qty: 1, need: x.name, source: 'added by you', pick: slimIt(x), cand: [slimIt(x)] });
+        else { l.pick = slimIt(x); l.how = 'picked'; l.cand = [slimIt(x)].concat((l.cand || []).filter(c => c.id != x.id)).slice(0, 12); if (l.kind == 'panel' || l.kind == 'inverter') remember(l.need, x); }
+        touch(job.wrid); return close();
+      }
+    };
+    paint(); inp.focus();
+    if (!k.res.length && k.q) go(); else stock();
+  }
 
   function lightbox(job, i) {
     const s = st(job.wrid), ph = job.photos;
@@ -801,22 +861,13 @@ Tradezone branch <select class="in" data-set="branch">${Object.keys(TZLOC).map(b
     if (a == 'go') return workOut(job, e.shiftKey);
     if (a == 'force') return workOut(job, true);
     if (a == 'del') { s.lines.splice(+t.dataset.i, 1); touch(job.wrid); return draw(job.wrid); }
-    if (a == 'srch') { const i = t.dataset.i == 'new' ? 'new' : +t.dataset.i; searchFor = searchFor && searchFor.w == job.wrid && searchFor.i === i ? null : { w: job.wrid, i }; srch = { q: i === 'new' ? '' : (s.lines[i].terms || [])[0] || s.lines[i].need, res: [], busy: false, err: '' }; draw(job.wrid); const inp = P.querySelector('input[data-f="srch"]'); if (inp) inp.focus(); return; }
-    if (a == 'pick') {
-      const x = srch.res[+t.dataset.k]; if (!x) return;
-      await tzStock(x).catch(() => {});
-      if (searchFor.i === 'new') s.lines.push({ kind: 'extra', qty: 1, need: x.name, source: 'added by you', pick: slimIt(x), cand: [slimIt(x)] });
-      else { const l = s.lines[searchFor.i]; l.pick = slimIt(x); l.how = 'picked'; if (!l.cand.find(c => c.id == x.id)) l.cand.unshift(slimIt(x)); if (l.kind == 'panel' || l.kind == 'inverter') remember(l.need, x); }
-      searchFor = null; touch(job.wrid); return draw(job.wrid);
-    }
+    if (a == 'pickwin') return picker(job, t.dataset.i == 'new' ? 'new' : +t.dataset.i);
     if (a == 'ap') return approve(job);
     if (a == 'cart') return loadCart(job);
     if (a == 'ord') { if (s.ordered) { s.ordered = 0; touch(job.wrid); return draw(job.wrid); } return markOrdered(job); }
   }
-  let sT = null;
   function onInput(e) {
     const t = e.target, job = jobOf(t);
-    if (t.dataset.f == 'srch') { srch.q = t.value; clearTimeout(sT); sT = setTimeout(async () => { if (!clean(srch.q)) return; srch.busy = true; srch.err = ''; try { srch.res = (await searchTz(clean(srch.q))).slice(0, 15); } catch (er) { srch.err = er.message; } srch.busy = false; if (job) { draw(job.wrid); const inp = P.querySelector('input[data-f="srch"]'); if (inp) { inp.focus(); inp.setSelectionRange(inp.value.length, inp.value.length); } } }, 500); return; }
     if (job && (t.dataset.f == 'notes' || t.dataset.f == 'ref')) { st(job.wrid)[t.dataset.f] = t.value; touch(job.wrid); }
   }
   function onChange(e) {
@@ -828,7 +879,6 @@ Tradezone branch <select class="in" data-set="branch">${Object.keys(TZLOC).map(b
     if (t.dataset.f == 'multi') { s.multi = t.checked; touch(job.wrid); return draw(job.wrid); }
     if (t.dataset.f == 'ref' || t.dataset.f == 'notes') { s[t.dataset.f] = t.value; touch(job.wrid); return draw(job.wrid); }
     if (t.dataset.q != null) { s.lines[+t.dataset.q].qty = Math.max(1, Math.round(+t.value || 1)); touch(job.wrid); return draw(job.wrid); }
-    if (t.dataset.sw != null) { const l = s.lines[+t.dataset.sw], x = l.cand[+t.value]; l.pick = x; l.how = 'picked'; if (l.kind == 'panel' || l.kind == 'inverter') remember(l.need, x); touch(job.wrid); draw(job.wrid); tzStock(x).then(() => { touch(job.wrid); draw(job.wrid); }).catch(() => {}); return; }
     if (t.dataset.ck != null) { s.checked = s.checked || {}; s.checked[t.dataset.ck] = t.checked; touch(job.wrid); return draw(job.wrid); }
   }
 
