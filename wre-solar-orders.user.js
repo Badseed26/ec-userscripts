@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WRE solar orders
 // @namespace    wre
-// @version      0.2
+// @version      0.3
 // @description  Solar orders button on the AroFlo calendar: lists the solar replacement jobs booked in the next X days with the lads' notes, the PO, photos and your notes, works out the panels and inverter from the label photos and notes (Haiku sorts the photos, Opus reads them), adds rails and TIN kits by rule, matches it all on Tradezone with Gold Coast stock, runs a checklist, keeps approved orders in Todoist and loads one job at a time into the Tradezone cart with the PO ref. Never orders, you do that.
 // @match        https://office.aroflo.com/ims/Site/Calendar/*
 // @grant        GM_xmlhttpRequest
@@ -23,7 +23,7 @@
   // Live updates (23/10): Tampermonkey only checks for a new version every few hours. This checks the repo's latest commit every
   // 2 min (free when nothing's changed) and keeps the newest code here, so a push runs on the next page load. If the new code needs
   // a permission this install hasn't got, or this browser won't run it, the built in copy below runs like before.
-  const __wreName = "wre-solar-orders", __wreVer = "0.2", __wreHave = new Set(["// @connect api.anthropic.com", "// @connect api.github.com", "// @connect api.todoist.com", "// @connect raw.githubusercontent.com", "// @connect www.tradezone.com.au", "// @grant GM_getValue", "// @grant GM_setValue", "// @grant GM_xmlhttpRequest", "// @grant unsafeWindow", "// @match https://office.aroflo.com/ims/Site/Calendar/*", "// @run-at document-idle"]);
+  const __wreName = "wre-solar-orders", __wreVer = "0.3", __wreHave = new Set(["// @connect api.anthropic.com", "// @connect api.github.com", "// @connect api.todoist.com", "// @connect raw.githubusercontent.com", "// @connect www.tradezone.com.au", "// @grant GM_getValue", "// @grant GM_setValue", "// @grant GM_xmlhttpRequest", "// @grant unsafeWindow", "// @match https://office.aroflo.com/ims/Site/Calendar/*", "// @run-at document-idle"]);
   const __wreInfo0 = typeof GM_info != 'undefined' ? GM_info : null;
   const __wreSay = m => { try { console.log('[WRE live update] ' + __wreName + ': ' + m); } catch (e) {} };
   const __wreCmp = (a, b) => { const x = String(a).split('.').map(Number), y = String(b).split('.').map(Number); for (let i = 0; i < Math.max(x.length, y.length); i++) { const d = (x[i] || 0) - (y[i] || 0); if (d) return d; } return 0; };
@@ -74,7 +74,7 @@
   }
   if (window.top === window.self) { __wreCheck(); setInterval(__wreCheck, 2 * 60e3 + 5000); }
   if (__wreLive()) return;
-  // ---------- the built in copy (src/wre-solar-orders.js at 0.2) ----------
+  // ---------- the built in copy (src/wre-solar-orders.js at 0.3) ----------
 
 (function () {
   'use strict';
@@ -781,7 +781,10 @@ Tradezone branch <select class="in" data-set="branch">${Object.keys(TZLOC).map(b
     if (b.length) h += `<div class="sub" style="margin-top:4px">Before the cart: ${esc(b.join(', '))}.</div>`;
     return h + '</div>';
   }
-  const thumb = (x, act, i) => x && x.img ? `<img class="th" src="${esc(x.img)}" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.visibility='hidden'"${act ? ` data-a="${act}" data-i="${i}"` : ''}>` : `<div class="th none"${act ? ` data-a="${act}" data-i="${i}"` : ''}>no pic</div>`;
+  // Tradezone's pics all live at media.tradezone.com.au/images/still/300/300/<product id>/30.jpg (16/11), so a line saved
+  // without one (0.1 missed them) still gets its pic
+  const picOf = x => x ? (/^\d+$/.test(String(x.id || '')) ? 'https://media.tradezone.com.au/images/still/300/300/' + x.id + '/30.jpg' : x.img || '') : '';
+  const thumb = (x, act, i) => picOf(x) ? `<img class="th" src="${esc(picOf(x))}" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.visibility='hidden'"${act ? ` data-a="${act}" data-i="${i}"` : ''}>` : `<div class="th none"${act ? ` data-a="${act}" data-i="${i}"` : ''}>no pic</div>`;
   const stockTxt = (x, q) => x.bq == null ? esc(x.stock || 'stock ?') : '<span class="' + (x.bq >= (q || 1) ? 'ok' : 'red') + '">' + esc(S().branch) + ' ' + x.bq + '</span>';
 
   // the product picker: a proper window with pics, price and branch stock, like the quote one. i is the line, or 'new' to add one.
@@ -798,7 +801,7 @@ Tradezone branch <select class="in" data-set="branch">${Object.keys(TZLOC).map(b
     const paint = () => { list().innerHTML = rows(); pk.querySelector('.ps').textContent = k.busy ? 'Searching…' : k.err || ''; };
     // branch stock for what's showing, a few at a time, repainting as it comes in
     const stock = () => pool(k.res.filter(x => x.bq == null).slice(0, 12), 4, x => tzStock(x).then(() => { if (document.getElementById('wso-pk') === pk) paint(); }).catch(() => {}));
-    const go = async () => { if (!clean(k.q)) return; k.busy = true; k.err = ''; paint(); try { k.res = (await searchTz(clean(k.q))).slice(0, 24); } catch (e) { k.err = e.message; k.res = []; } k.busy = false; paint(); stock(); };
+    const go = async () => { if (!clean(k.q)) return; k.busy = true; k.err = ''; paint(); try { k.res = (await searchTz(clean(k.q))).slice(0, 24); if (l && l.pick && !k.res.find(c => c.id == l.pick.id)) k.res.unshift(l.pick); } catch (e) { k.err = e.message; } k.busy = false; paint(); stock(); };
     pk.innerHTML = `<div class="pw"><div class="ph2"><b>${l ? 'Pick for: ' + esc(l.need) + ' (' + l.qty + ')' : 'Add a line'}</b><button class="btn grey" data-x="1">✕</button></div>
 <div class="row" style="margin:0 0 8px"><input class="in" style="flex:1" placeholder="Search Tradezone" value="${esc(k.q)}"><button class="btn" data-s="1">Search</button></div>
 <div class="sub ps"></div><div class="pl"></div></div>`;
@@ -817,7 +820,7 @@ Tradezone branch <select class="in" data-set="branch">${Object.keys(TZLOC).map(b
       }
     };
     paint(); inp.focus();
-    if (!k.res.length && k.q) go(); else stock();
+    if (k.q) go(); else stock();   // always a fresh search, so the options and stock are today's
   }
 
   function lightbox(job, i) {
