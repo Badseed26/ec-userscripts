@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WRE job packs
 // @namespace    wre
-// @version      0.4.13
+// @version      0.4.14
 // @description  Job pack PDFs for Ambrose jobs. A Job packs button on the AroFlo calendar (above Solar orders) lists the Ambrose jobs booked in the next X days with tick boxes, and a Job pack button sits on each Ambrose task. Run reads the task, pulls the Ambrose site photos and mud map, gets an aerial of the address (Queensland Government photos, or Google with a key), has Haiku pick the photos for the PO rooms, write the job scope and flag anything odd, builds the pack in FieldViser through its API, then puts a share link on top of the task description and the PDF in the task's documents.
 // @match        https://office.aroflo.com/ims/Site/Calendar/*
 // @match        https://office.aroflo.com/ims/Site/Service/workrequest/*
@@ -36,7 +36,7 @@
   // Live updates (23/10): Tampermonkey only checks for a new version every few hours. This checks the repo's latest commit every
   // 2 min (free when nothing's changed) and keeps the newest code here, so a push runs on the next page load. If the new code needs
   // a permission this install hasn't got, or this browser won't run it, the built in copy below runs like before.
-  const __wreName = "wre-job-packs", __wreVer = "0.4.13", __wreHave = new Set(["// @connect amazonaws.com", "// @connect ambrose-production.s3-ap-southeast-2.amazonaws.com", "// @connect api.anthropic.com", "// @connect api.github.com", "// @connect api.todoist.com", "// @connect cloudfront.net", "// @connect ddxqoilvgipf7.cloudfront.net", "// @connect fieldviser.com", "// @connect maps.googleapis.com", "// @connect production-reportapi.ambrosebuilding.com.au", "// @connect raw.githubusercontent.com", "// @connect spatial-gis.information.qld.gov.au", "// @connect spatial-img.information.qld.gov.au", "// @connect testing.fieldviser.com", "// @grant GM_addValueChangeListener", "// @grant GM_getValue", "// @grant GM_openInTab", "// @grant GM_setValue", "// @grant GM_xmlhttpRequest", "// @grant unsafeWindow", "// @grant window.close", "// @match https://office.aroflo.com/ims/Site/Calendar/*", "// @match https://office.aroflo.com/ims/Site/Service/workrequest/*", "// @run-at document-idle"]);
+  const __wreName = "wre-job-packs", __wreVer = "0.4.14", __wreHave = new Set(["// @connect amazonaws.com", "// @connect ambrose-production.s3-ap-southeast-2.amazonaws.com", "// @connect api.anthropic.com", "// @connect api.github.com", "// @connect api.todoist.com", "// @connect cloudfront.net", "// @connect ddxqoilvgipf7.cloudfront.net", "// @connect fieldviser.com", "// @connect maps.googleapis.com", "// @connect production-reportapi.ambrosebuilding.com.au", "// @connect raw.githubusercontent.com", "// @connect spatial-gis.information.qld.gov.au", "// @connect spatial-img.information.qld.gov.au", "// @connect testing.fieldviser.com", "// @grant GM_addValueChangeListener", "// @grant GM_getValue", "// @grant GM_openInTab", "// @grant GM_setValue", "// @grant GM_xmlhttpRequest", "// @grant unsafeWindow", "// @grant window.close", "// @match https://office.aroflo.com/ims/Site/Calendar/*", "// @match https://office.aroflo.com/ims/Site/Service/workrequest/*", "// @run-at document-idle"]);
   const __wreInfo0 = typeof GM_info != 'undefined' ? GM_info : null;
   const __wreSay = m => { try { console.log('[WRE live update] ' + __wreName + ': ' + m); } catch (e) {} };
   const __wreCmp = (a, b) => { const x = String(a).split('.').map(Number), y = String(b).split('.').map(Number); for (let i = 0; i < Math.max(x.length, y.length); i++) { const d = (x[i] || 0) - (y[i] || 0); if (d) return d; } return 0; };
@@ -87,7 +87,7 @@
   }
   if (window.top === window.self) { __wreCheck(); setInterval(__wreCheck, 2 * 60e3 + 5000); }
   if (__wreLive()) return;
-  // ---------- the built in copy (src/wre-job-packs.js at 0.4.13) ----------
+  // ---------- the built in copy (src/wre-job-packs.js at 0.4.14) ----------
 
 (function () {
   'use strict';
@@ -632,24 +632,15 @@ Answer with JSON only: {"pin_on_house":true,"house_in_frame":"whole","note":""} 
   // the button sits just above Solar orders, the list fills the screen and the page behind is pinned while it's open ----------
   const MOBILE = (navigator.maxTouchPoints > 0 && Math.min(screen.width, screen.height) < 700) || /iPhone|iPod|Android.+Mobile/.test(navigator.userAgent);
   const view = () => { const vv = W.visualViewport || { width: innerWidth, height: innerHeight, offsetLeft: 0, offsetTop: 0 }; const sw = vv.width > vv.height ? Math.max(screen.width, screen.height) : Math.min(screen.width, screen.height); return { vv, sw, k: vv.width / sw }; };
-  // zoom, not a scale transform: iPhone Safari draws a scaled up layer blurry until it gets round to redrawing it a minute
-  // or two later (16/11). Zoom lays it out at the bigger size so it's sharp straight away. If this browser doesn't scale
-  // left and top with the zoom, the measured spot says so and it's put back by hand.
-  const zoomTo = (el, L, T, k, w, h) => {
-    const st = { transform: '', zoom: String(k), left: (L / k) + 'px', top: (T / k) + 'px' };
-    if (w != null) st.width = w + 'px'; if (h != null) st.height = h + 'px';
-    Object.assign(el.style, st);
-    const r = el.getBoundingClientRect(); if (Math.abs(r.left - L) > 2 || Math.abs(r.top - T) > 2) Object.assign(el.style, { left: L + 'px', top: T + 'px' });
-  };
   function fitEl(el) {
     if (!MOBILE || !el || !el.isConnected) return;
     const { vv, sw, k } = view();
-    zoomTo(el, vv.offsetLeft, vv.offsetTop, k, sw, vv.height / k);
+    Object.assign(el.style, { left: vv.offsetLeft + 'px', top: vv.offsetTop + 'px', width: sw + 'px', height: (vv.height / k) + 'px', transform: 'scale(' + k + ')' });
   }
   function fitBtn() {
     const b = document.getElementById('wjp-btn'); if (!MOBILE || !b) return;
     const { vv, k } = view();
-    zoomTo(b, vv.offsetLeft + 14 * k, vv.offsetTop + vv.height - 122 * k, k);
+    Object.assign(b.style, { left: (vv.offsetLeft + 14 * k) + 'px', top: (vv.offsetTop + vv.height - 122 * k) + 'px', transform: 'scale(' + k + ')' });
   }
   const fitAll = () => { fitEl(P); fitBtn(); };
   let locked = null;
@@ -693,7 +684,7 @@ Answer with JSON only: {"pin_on_house":true,"house_in_frame":"whole","note":""} 
   function panel() {
     mountCss();
     if (!P) {
-      P = document.createElement('div'); P.id = 'wjp'; document.body.appendChild(P); P.addEventListener('click', onClick); P.addEventListener('change', onChange);
+      P = document.createElement('div'); P.id = 'wjp'; document.body.appendChild(P); P.addEventListener('click', onClick); P.addEventListener('change', onChange); P.addEventListener('input', e => { if (e.target.dataset.key || (e.target.dataset.set && e.target.tagName == 'INPUT')) onChange(e); });
       if (MOBILE) { P.classList.add('mob'); lockPage(); guardTouch(P); const b = document.getElementById('wjp-btn'); if (b) b.style.display = 'none'; }
     }
     fitEl(P);
@@ -721,6 +712,7 @@ Answer with JSON only: {"pin_on_house":true,"house_in_frame":"whole","note":""} 
     });
     return h;
   }
+  // the key boxes save on every keystroke and paste (16/11: the list redrawing mid paste threw a pasted key away before it saved)
   function setHtml() {
     const s = S();
     return '<div class="note set"><b>Settings (this device only)</b>' +
