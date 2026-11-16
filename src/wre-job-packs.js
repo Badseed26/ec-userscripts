@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WRE job packs
 // @namespace    wre
-// @version      0.4.7
+// @version      0.4.8
 // @description  Job pack PDFs for Ambrose jobs. A Job packs button on the AroFlo calendar (above Solar orders) lists the Ambrose jobs booked in the next X days with tick boxes, and a Job pack button sits on each Ambrose task. Run reads the task, pulls the Ambrose site photos and mud map, gets an aerial of the address (Queensland Government photos, or Google with a key), has Haiku pick the photos for the PO rooms, write the job scope and flag anything odd, builds the pack in FieldViser through its API, then puts a share link on top of the task description and the PDF in the task's documents.
 // @match        https://office.aroflo.com/ims/Site/Calendar/*
 // @match        https://office.aroflo.com/ims/Site/Service/workrequest/*
@@ -596,6 +596,7 @@ Answer with JSON only: {"pin_on_house":true,"house_in_frame":"whole","note":""} 
   }
   function drawList() {
     const p = panel(), s = S();
+    const bd0 = p.querySelector('.bd'), keep = bd0 ? bd0.scrollTop : 0;   // a redraw keeps your place in the list (Ethan, 16/11)
     let h = '<div class="hd"><b>Job packs</b>' + (onTask ? '' : '<label>Next <input type="number" min="1" max="60" data-set="days" value="' + s.days + '"> days</label>') +
       (onTask ? '' : '<button class="btn" data-a="scan"' + (busy ? ' disabled' : '') + '>Refresh</button>') + '<button class="btn grey" data-a="set">Settings</button><button class="btn grey" data-a="close">✕</button><span class="st sub" style="width:100%;color:#ddd"></span></div><div class="bd">';
     if (showSet) h += setHtml();
@@ -614,6 +615,7 @@ Answer with JSON only: {"pin_on_house":true,"house_in_frame":"whole","note":""} 
         '<div class="row"><button class="btn" data-a="one"' + (busy ? ' disabled' : '') + '>' + (jst(j.jn) && jst(j.jn).ver ? 'Rebuild the pack' : 'Build the pack') + '</button></div>' + resultHtml(j.jn) + '</div>';
     }
     p.innerHTML = h + '</div>';
+    const bd1 = p.querySelector('.bd'); if (bd1) bd1.scrollTop = keep;
   }
 
   const hm = d => d.toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit' }).replace(/\s/g, '').toLowerCase();
