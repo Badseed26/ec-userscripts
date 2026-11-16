@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WRE job packs
 // @namespace    wre
-// @version      0.4.12
+// @version      0.4.13
 // @description  Job pack PDFs for Ambrose jobs. A Job packs button on the AroFlo calendar (above Solar orders) lists the Ambrose jobs booked in the next X days with tick boxes, and a Job pack button sits on each Ambrose task. Run reads the task, pulls the Ambrose site photos and mud map, gets an aerial of the address (Queensland Government photos, or Google with a key), has Haiku pick the photos for the PO rooms, write the job scope and flag anything odd, builds the pack in FieldViser through its API, then puts a share link on top of the task description and the PDF in the task's documents.
 // @match        https://office.aroflo.com/ims/Site/Calendar/*
 // @match        https://office.aroflo.com/ims/Site/Service/workrequest/*
@@ -14,7 +14,9 @@
 // @grant        window.close
 // @connect      production-reportapi.ambrosebuilding.com.au
 // @connect      ambrose-production.s3-ap-southeast-2.amazonaws.com
+// @connect      amazonaws.com
 // @connect      ddxqoilvgipf7.cloudfront.net
+// @connect      cloudfront.net
 // @connect      maps.googleapis.com
 // @connect      spatial-gis.information.qld.gov.au
 // @connect      spatial-img.information.qld.gov.au
@@ -34,7 +36,7 @@
   // Live updates (23/10): Tampermonkey only checks for a new version every few hours. This checks the repo's latest commit every
   // 2 min (free when nothing's changed) and keeps the newest code here, so a push runs on the next page load. If the new code needs
   // a permission this install hasn't got, or this browser won't run it, the built in copy below runs like before.
-  const __wreName = "wre-job-packs", __wreVer = "0.4.12", __wreHave = new Set(["// @connect ambrose-production.s3-ap-southeast-2.amazonaws.com", "// @connect api.anthropic.com", "// @connect api.github.com", "// @connect api.todoist.com", "// @connect ddxqoilvgipf7.cloudfront.net", "// @connect fieldviser.com", "// @connect maps.googleapis.com", "// @connect production-reportapi.ambrosebuilding.com.au", "// @connect raw.githubusercontent.com", "// @connect spatial-gis.information.qld.gov.au", "// @connect spatial-img.information.qld.gov.au", "// @connect testing.fieldviser.com", "// @grant GM_addValueChangeListener", "// @grant GM_getValue", "// @grant GM_openInTab", "// @grant GM_setValue", "// @grant GM_xmlhttpRequest", "// @grant unsafeWindow", "// @grant window.close", "// @match https://office.aroflo.com/ims/Site/Calendar/*", "// @match https://office.aroflo.com/ims/Site/Service/workrequest/*", "// @run-at document-idle"]);
+  const __wreName = "wre-job-packs", __wreVer = "0.4.13", __wreHave = new Set(["// @connect amazonaws.com", "// @connect ambrose-production.s3-ap-southeast-2.amazonaws.com", "// @connect api.anthropic.com", "// @connect api.github.com", "// @connect api.todoist.com", "// @connect cloudfront.net", "// @connect ddxqoilvgipf7.cloudfront.net", "// @connect fieldviser.com", "// @connect maps.googleapis.com", "// @connect production-reportapi.ambrosebuilding.com.au", "// @connect raw.githubusercontent.com", "// @connect spatial-gis.information.qld.gov.au", "// @connect spatial-img.information.qld.gov.au", "// @connect testing.fieldviser.com", "// @grant GM_addValueChangeListener", "// @grant GM_getValue", "// @grant GM_openInTab", "// @grant GM_setValue", "// @grant GM_xmlhttpRequest", "// @grant unsafeWindow", "// @grant window.close", "// @match https://office.aroflo.com/ims/Site/Calendar/*", "// @match https://office.aroflo.com/ims/Site/Service/workrequest/*", "// @run-at document-idle"]);
   const __wreInfo0 = typeof GM_info != 'undefined' ? GM_info : null;
   const __wreSay = m => { try { console.log('[WRE live update] ' + __wreName + ': ' + m); } catch (e) {} };
   const __wreCmp = (a, b) => { const x = String(a).split('.').map(Number), y = String(b).split('.').map(Number); for (let i = 0; i < Math.max(x.length, y.length); i++) { const d = (x[i] || 0) - (y[i] || 0); if (d) return d; } return 0; };
@@ -85,7 +87,7 @@
   }
   if (window.top === window.self) { __wreCheck(); setInterval(__wreCheck, 2 * 60e3 + 5000); }
   if (__wreLive()) return;
-  // ---------- the built in copy (src/wre-job-packs.js at 0.4.12) ----------
+  // ---------- the built in copy (src/wre-job-packs.js at 0.4.13) ----------
 
 (function () {
   'use strict';
@@ -289,6 +291,9 @@
     return out;
   }
   const cfThumb = url => CF + String(url || '').split('/media/')[1];
+  // Ambrose keeps photos in more than one S3 bucket (ambrose-production, ambrose-media seen 16/11). The original first, and
+  // if that host won't answer, Ambrose's own 800 px copy off CloudFront rather than no photo.
+  const photoBlob = async url => { try { return await getBlob(url); } catch (e) { return await getBlob(cfThumb(url)); } };
   const capOf = p => /for company/i.test(p.cap) ? (/front elevation/i.test(p.room + p.cap) ? 'Front of house' : p.room) : (p.cap || p.room);
 
   // ---------- AI ----------
@@ -401,7 +406,7 @@ Answer with JSON only: {"pin_on_house":true,"house_in_frame":"whole","note":""} 
     let mp = pages.find(p => /^mud ?map$/i.test(p.name));
     if (A.mud) {
       say('FieldViser: mud map');
-      const mm = (await jpeg(await getBlob(A.mud.url), 2400, 0.88)).b64;
+      const mm = (await jpeg(await photoBlob(A.mud.url), 2400, 0.88)).b64;
       if (mp) { await fv('PUT', '/jobs/' + id + '/pages/' + mp.id + '/image', { image: mm }); await fv('PATCH', '/jobs/' + id + '/pages/' + mp.id, { in_pdf: true }); }
       else mp = (await fv('POST', '/jobs/' + id + '/pages', { name: 'Mud map', image: mm, in_pdf: true })).page;
     } else if (mp) await fv('PATCH', '/jobs/' + id + '/pages/' + mp.id, { in_pdf: false });
@@ -419,7 +424,7 @@ Answer with JSON only: {"pin_on_house":true,"house_in_frame":"whole","note":""} 
       say('FieldViser: photo ' + (++n) + ' of ' + want.length);
       const body = { caption: capOf(w.p), section: secId(w.sec) };
       if (old.find(o => o.external_id == w.ext)) await fv('PATCH', '/jobs/' + id + '/photos/' + encodeURIComponent(w.ext), body);
-      else await fv('POST', '/jobs/' + id + '/photos', Object.assign({ image: (await jpeg(await getBlob(w.p.url), 1600, 0.85)).b64, external_id: w.ext }, body));
+      else await fv('POST', '/jobs/' + id + '/photos', Object.assign({ image: (await jpeg(await photoBlob(w.p.url), 1600, 0.85)).b64, external_id: w.ext }, body));
     }
     for (const o of old) if (!want.find(w => w.ext == o.external_id)) await fv('DELETE', '/jobs/' + id + '/photos/' + encodeURIComponent(o.external_id));
     if (want.length) await fv('PUT', '/jobs/' + id + '/photos/order', { ids: want.map(w => w.ext) });
