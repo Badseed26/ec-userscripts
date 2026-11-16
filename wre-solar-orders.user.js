@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WRE solar orders
 // @namespace    wre
-// @version      0.3
+// @version      0.4
 // @description  Solar orders button on the AroFlo calendar: lists the solar replacement jobs booked in the next X days with the lads' notes, the PO, photos and your notes, works out the panels and inverter from the label photos and notes (Haiku sorts the photos, Opus reads them), adds rails and TIN kits by rule, matches it all on Tradezone with Gold Coast stock, runs a checklist, keeps approved orders in Todoist and loads one job at a time into the Tradezone cart with the PO ref. Never orders, you do that.
 // @match        https://office.aroflo.com/ims/Site/Calendar/*
 // @grant        GM_xmlhttpRequest
@@ -23,7 +23,7 @@
   // Live updates (23/10): Tampermonkey only checks for a new version every few hours. This checks the repo's latest commit every
   // 2 min (free when nothing's changed) and keeps the newest code here, so a push runs on the next page load. If the new code needs
   // a permission this install hasn't got, or this browser won't run it, the built in copy below runs like before.
-  const __wreName = "wre-solar-orders", __wreVer = "0.3", __wreHave = new Set(["// @connect api.anthropic.com", "// @connect api.github.com", "// @connect api.todoist.com", "// @connect raw.githubusercontent.com", "// @connect www.tradezone.com.au", "// @grant GM_getValue", "// @grant GM_setValue", "// @grant GM_xmlhttpRequest", "// @grant unsafeWindow", "// @match https://office.aroflo.com/ims/Site/Calendar/*", "// @run-at document-idle"]);
+  const __wreName = "wre-solar-orders", __wreVer = "0.4", __wreHave = new Set(["// @connect api.anthropic.com", "// @connect api.github.com", "// @connect api.todoist.com", "// @connect raw.githubusercontent.com", "// @connect www.tradezone.com.au", "// @grant GM_getValue", "// @grant GM_setValue", "// @grant GM_xmlhttpRequest", "// @grant unsafeWindow", "// @match https://office.aroflo.com/ims/Site/Calendar/*", "// @run-at document-idle"]);
   const __wreInfo0 = typeof GM_info != 'undefined' ? GM_info : null;
   const __wreSay = m => { try { console.log('[WRE live update] ' + __wreName + ': ' + m); } catch (e) {} };
   const __wreCmp = (a, b) => { const x = String(a).split('.').map(Number), y = String(b).split('.').map(Number); for (let i = 0; i < Math.max(x.length, y.length); i++) { const d = (x[i] || 0) - (y[i] || 0); if (d) return d; } return 0; };
@@ -74,7 +74,7 @@
   }
   if (window.top === window.self) { __wreCheck(); setInterval(__wreCheck, 2 * 60e3 + 5000); }
   if (__wreLive()) return;
-  // ---------- the built in copy (src/wre-solar-orders.js at 0.3) ----------
+  // ---------- the built in copy (src/wre-solar-orders.js at 0.4) ----------
 
 (function () {
   'use strict';
@@ -680,17 +680,84 @@ Answer with JSON only:
 #wso-lb .row{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
 #wso-lb button{background:#fff;color:${GREY};border:0;border-radius:8px;padding:8px 12px;font:600 13px -apple-system,Segoe UI,sans-serif;cursor:pointer}
 #wso-lb button.on{background:${ORANGE};color:#fff}
-#wso .set input{width:100%;margin:2px 0 8px}`;
+#wso .set input{width:100%;margin:2px 0 8px}
+#wso.mob,#wso-pk.mob,#wso-lb.mob{right:auto;bottom:auto;transform-origin:0 0}
+#wso-btn.mob{transform-origin:0 0;bottom:auto;padding:12px 18px;font-size:16px}
+#wso.mob{font-size:15px}#wso.mob .hd{padding:12px}#wso.mob .hd b{flex:1 0 100%;font-size:18px}
+#wso.mob .btn{padding:10px 14px;font-size:14px}#wso.mob .btn.sm{padding:8px 12px;font-size:13px}
+#wso.mob input[type=checkbox]{width:22px;height:22px;flex:0 0 22px}
+#wso.mob .ck{padding:7px 0;font-size:14.5px;align-items:center}#wso.mob .hd label{display:flex;gap:6px;align-items:center;font-size:14px}
+#wso.mob textarea,#wso.mob .in,#wso.mob .hd input[type=number]{font-size:16px;padding:8px}
+#wso.mob .ln input.q{width:66px;padding:8px;font-size:16px}#wso.mob .x{font-size:28px;padding:0 6px}
+#wso.mob .ch{padding:14px 12px}#wso.mob .nm{font-size:15.5px}#wso.mob .sub{font-size:13.5px}
+#wso.mob .ph img{height:100px}#wso.mob .th{width:64px;height:64px;flex-basis:64px}
+#wso-pk.mob .pw{width:100%;height:100%;border-radius:0;padding:12px}
+#wso-pk.mob .in{font-size:16px;padding:10px}#wso-pk.mob .btn{padding:10px 14px;font-size:14px}
+#wso-pk.mob .pr{flex-wrap:wrap}#wso-pk.mob .pr .t{flex:1 1 60%}#wso-pk.mob .pr .btn{flex:1 0 100%}#wso-pk.mob .sub{font-size:13.5px}
+#wso-lb.mob img{max-width:100%;max-height:68%}#wso-lb.mob button{padding:12px 14px;font-size:15px}`;
   let P = null, open = {}, showSet = false;
+
+  // ---------- phones (same as the supplier window) ----------
+  // On a phone everything is sized to what's actually on screen, so it's the right size even with AroFlo on Request
+  // Desktop Website, pinched in or with the keyboard up. The page underneath is pinned while it's open.
+  const MOBILE = (navigator.maxTouchPoints > 0 && Math.min(screen.width, screen.height) < 700) || /iPhone|iPod|Android.+Mobile/.test(navigator.userAgent);
+  const view = () => { const vv = W.visualViewport || { width: innerWidth, height: innerHeight, offsetLeft: 0, offsetTop: 0 }; const sw = vv.width > vv.height ? Math.max(screen.width, screen.height) : Math.min(screen.width, screen.height); return { vv, sw, k: vv.width / sw }; };
+  function fitEl(el) {
+    if (!MOBILE || !el || !el.isConnected) return;
+    const { vv, sw, k } = view();
+    Object.assign(el.style, { left: vv.offsetLeft + 'px', top: vv.offsetTop + 'px', width: sw + 'px', height: (vv.height / k) + 'px', transform: 'scale(' + k + ')' });
+  }
+  function fitBtn() {
+    const b = document.getElementById('wso-btn'); if (!MOBILE || !b) return;
+    const { vv, k } = view();
+    Object.assign(b.style, { left: (vv.offsetLeft + 14 * k) + 'px', top: (vv.offsetTop + vv.height - 64 * k) + 'px', transform: 'scale(' + k + ')' });
+  }
+  const fitAll = () => { [P, document.getElementById('wso-pk'), document.getElementById('wso-lb')].forEach(fitEl); fitBtn(); };
+  let locked = null;
+  function lockPage() {
+    if (!MOBILE || locked) return;
+    const b = document.body, h = document.documentElement;
+    locked = { y: W.scrollY || h.scrollTop || 0, x: W.scrollX || 0, b: b.getAttribute('style'), h: h.getAttribute('style') };
+    h.style.overflow = 'hidden';
+    Object.assign(b.style, { position: 'fixed', top: -locked.y + 'px', left: -locked.x + 'px', width: '100%', overflow: 'hidden' });
+  }
+  function unlockPage() {
+    if (!locked) return;
+    const b = document.body, h = document.documentElement, l = locked; locked = null;
+    if (l.b == null) b.removeAttribute('style'); else b.setAttribute('style', l.b);
+    if (l.h == null) h.removeAttribute('style'); else h.setAttribute('style', l.h);
+    W.scrollTo(l.x, l.y);
+  }
+  // iPhone Safari scrolls the page behind on a drag, so a drag only moves the part under your finger that scrolls
+  // (the list, the notes box, the photo strip sideways) and stops at its ends
+  function guardTouch(bx) {
+    let y0 = 0, x0 = 0;
+    const scroller = t => { for (let e = t; e && e !== bx.parentNode; e = e.parentElement) { const cs = getComputedStyle(e); const v = /(auto|scroll)/.test(cs.overflowY) && e.scrollHeight > e.clientHeight + 1, hz = /(auto|scroll)/.test(cs.overflowX) && e.scrollWidth > e.clientWidth + 1; if (v || hz) return { e, v, hz }; } return null; };
+    bx.addEventListener('touchstart', e => { y0 = e.touches[0].clientY; x0 = e.touches[0].clientX; }, { passive: true });
+    bx.addEventListener('touchmove', e => {
+      const ae = document.activeElement, vv = W.visualViewport;
+      if ((ae && bx.contains(ae) && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName) && ae.type != 'checkbox') || (vv && vv.height < innerHeight * 0.8)) return;   // keyboard up, leave it to iPhone
+      const dy = e.touches[0].clientY - y0, dx = e.touches[0].clientX - x0, sc = scroller(e.target);
+      if (!sc) { e.preventDefault(); return; }
+      if (Math.abs(dx) > Math.abs(dy)) { if (!sc.hz) e.preventDefault(); return; }
+      if (!sc.v) { e.preventDefault(); return; }
+      if ((dy > 0 && sc.e.scrollTop <= 0) || (dy < 0 && sc.e.scrollTop + sc.e.clientHeight >= sc.e.scrollHeight - 1)) e.preventDefault();
+    }, { passive: false });
+  }
+  const phoneUp = el => { if (!MOBILE) return; el.classList.add('mob'); guardTouch(el); fitEl(el); };
+  if (MOBILE) { const vv = W.visualViewport; if (vv) { vv.addEventListener('resize', fitAll); vv.addEventListener('scroll', fitAll); } addEventListener('resize', fitAll); addEventListener('orientationchange', () => setTimeout(fitAll, 300)); }
+
   function mount() {
     if (document.getElementById('wso-btn')) return;
     const st_ = document.createElement('style'); st_.textContent = CSS; document.head.appendChild(st_);
     const b = document.createElement('button'); b.id = 'wso-btn'; b.textContent = '☀ Solar orders'; b.onclick = toggle; document.body.appendChild(b);
+    if (MOBILE) { b.classList.add('mob'); fitBtn(); }
   }
   function toggle() {
-    if (P) { P.remove(); P = null; return; }
+    if (P) { P.remove(); P = null; unlockPage(); const b = document.getElementById('wso-btn'); if (b) b.style.display = ''; return; }
     P = document.createElement('div'); P.id = 'wso'; document.body.appendChild(P);
     P.addEventListener('click', onClick); P.addEventListener('change', onChange); P.addEventListener('input', onInput);
+    if (MOBILE) { lockPage(); phoneUp(P); const b = document.getElementById('wso-btn'); if (b) b.style.display = 'none'; }
     drawAll(); if (!JOBS.length) scan();
   }
   function drawAll() {
@@ -792,7 +859,7 @@ Tradezone branch <select class="in" data-set="branch">${Object.keys(TZLOC).map(b
     const s = st(job.wrid), l = i === 'new' ? null : s.lines[i];
     const k = { q: l ? ((l.terms || [])[0] || l.need) : '', res: l ? (l.cand || []).slice() : [], busy: false, err: '', qty: l ? l.qty : 1 };
     if (l && l.pick && !k.res.find(c => c.id == l.pick.id)) k.res.unshift(l.pick);
-    const pk = document.createElement('div'); pk.id = 'wso-pk'; document.body.appendChild(pk);
+    const pk = document.createElement('div'); pk.id = 'wso-pk'; document.body.appendChild(pk); phoneUp(pk);
     const close = () => { pk.remove(); draw(job.wrid); };
     const list = () => pk.querySelector('.pl');
     const rows = () => k.res.map((x, n) => `<div class="pr${l && l.pick && x.id == l.pick.id ? ' cur' : ''}">${thumb(x)}<div class="t"><div><b>${esc(x.name)}</b></div>
@@ -825,7 +892,11 @@ Tradezone branch <select class="in" data-set="branch">${Object.keys(TZLOC).map(b
 
   function lightbox(job, i) {
     const s = st(job.wrid), ph = job.photos;
-    const lb = document.createElement('div'); lb.id = 'wso-lb'; document.body.appendChild(lb);
+    const lb = document.createElement('div'); lb.id = 'wso-lb'; document.body.appendChild(lb); phoneUp(lb);
+    // swipe left and right for the next and last photo
+    let sx = null;
+    lb.addEventListener('touchstart', e => { sx = e.touches[0].clientX; }, { passive: true });
+    lb.addEventListener('touchend', e => { if (sx == null) return; const dx = e.changedTouches[0].clientX - sx; sx = null; if (Math.abs(dx) > 50) { i = (i + (dx < 0 ? 1 : -1) + ph.length) % ph.length; show(); } }, { passive: true });
     const show = () => {
       const p = ph[i], m = s.marks[p.id] || '';
       lb.innerHTML = `<img src="${esc(p.lg)}"><div style="color:#fff;font-size:13px">${i + 1} of ${ph.length} · ${esc(p.by)} ${esc(p.taken)}${p.caption ? ' · ' + esc(p.caption) : ''}</div>
