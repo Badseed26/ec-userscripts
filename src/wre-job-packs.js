@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         WRE job packs
 // @namespace    wre
-// @version      0.1
-// @description  Job pack PDFs for Ambrose jobs. A Job packs button on the AroFlo calendar (above Solar orders) lists the Ambrose jobs booked in the next X days with tick boxes, and a Job pack button sits on each Ambrose task. Run reads the task, pulls the Ambrose site photos and mud map, gets a Google satellite aerial, has Haiku pick the photos for the PO rooms, write the job scope and flag anything odd, builds the pack in FieldViser through its API, then puts a share link on top of the task description and the PDF in the task's documents.
+// @version      0.2
+// @description  Job pack PDFs for Ambrose jobs. A Job packs button on the AroFlo calendar (above Solar orders) lists the Ambrose jobs booked in the next X days with tick boxes, and a Job pack button sits on each Ambrose task. Run reads the task, pulls the Ambrose site photos and mud map, gets an aerial of the address (Queensland Government photos, or Google with a key), has Haiku pick the photos for the PO rooms, write the job scope and flag anything odd, builds the pack in FieldViser through its API, then puts a share link on top of the task description and the PDF in the task's documents.
 // @match        https://office.aroflo.com/ims/Site/Calendar/*
 // @match        https://office.aroflo.com/ims/Site/Service/workrequest/*
 // @grant        GM_xmlhttpRequest
@@ -16,6 +16,8 @@
 // @connect      ambrose-production.s3-ap-southeast-2.amazonaws.com
 // @connect      ddxqoilvgipf7.cloudfront.net
 // @connect      maps.googleapis.com
+// @connect      spatial-gis.information.qld.gov.au
+// @connect      spatial-img.information.qld.gov.au
 // @connect      api.anthropic.com
 // @connect      testing.fieldviser.com
 // @connect      fieldviser.com
@@ -33,7 +35,9 @@
   //   for the description and the Ambrose Site Images link. The jobRecID on that link is all Ambrose needs.
   // Ambrose: production-reportapi.ambrosebuilding.com.au/ReportData/ImagesReport?jobRecID= gives every photo with its room, caption
   //   and S3 link (the images report page reads the same). The mud map is the FRONT ELEVATION photo captioned "MudMap for company".
-  //   Ambrose has never supplied an aerial (23 jobs checked 16/11), so the aerial is always Google Static Maps off the task address.
+  //   Ambrose has never supplied an aerial (23 jobs checked 16/11), so the aerial comes off the task address: the Queensland
+  //   Government's public aerials (Qld Globe, free, no key, photos 3 years old or more) by default, Google Static Maps when a
+  //   Google key is under Settings (newer photos, needs billing on the Google account). 0.2, 16/11.
   // AI: one call. Haiku 5.5 (or Sonnet 5.5 on high, Settings) gets the PO wording with phones and contacts stripped, each photo's
   //   room and caption, and 512px thumbnails. It picks the photos (General plus each PO room), writes the job scope by room, a
   //   heads up line if the description has something critical, and flags only clear mismatches (an oven in the study).
@@ -271,12 +275,24 @@ Answer with JSON only:
   }
   async function pool(items, n, fn) { let i = 0; await Promise.all(Array.from({ length: Math.min(n, items.length) }, async () => { while (i < items.length) { const k = i++; await fn(items[k], k); } })); }
 
-  // ---------- Google aerial ----------
+  // ---------- aerial ----------
+  // Queensland Government: the address search gives the spot in web mercator metres, then a 90 m square of the latest public
+  // aerial around it, 1280 px (about 7 cm a pixel). The address goes in the middle, where FieldViser's pin goes.
+  const QLD_GEO = 'https://spatial-gis.information.qld.gov.au/arcgis/rest/services/Location/QldLocator/GeocodeServer/findAddressCandidates';
+  const QLD_IMG = 'https://spatial-img.information.qld.gov.au/arcgis/rest/services/Basemaps/LatestStateProgram_AllUsers/ImageServer/exportImage';
   async function aerial(addr) {
-    if (!mapsKey()) throw new Error('No Google Maps key. Add it under Settings');
-    const u = 'https://maps.googleapis.com/maps/api/staticmap?center=' + encodeURIComponent(addr + ', QLD, Australia') + '&zoom=20&size=640x640&scale=2&maptype=satellite&format=jpg&key=' + encodeURIComponent(mapsKey());
-    const r = await gm({ method: 'GET', url: u, responseType: 'blob', timeout: 30000 });
-    if (r.status != 200 || !r.response || !/image/.test(r.response.type || 'image')) throw new Error('Google Maps said ' + r.status + ' (check the key has the Maps Static API on)');
+    if (mapsKey()) {
+      const u = 'https://maps.googleapis.com/maps/api/staticmap?center=' + encodeURIComponent(addr + ', QLD, Australia') + '&zoom=20&size=640x640&scale=2&maptype=satellite&format=jpg&key=' + encodeURIComponent(mapsKey());
+      const r = await gm({ method: 'GET', url: u, responseType: 'blob', timeout: 30000 });
+      if (r.status != 200 || !r.response || !/image/.test(r.response.type || 'image')) throw new Error('Google Maps said ' + r.status + ' (check the key has the Maps Static API on, or clear it to use the Queensland photos)');
+      return await b64Of(r.response);
+    }
+    const g = await gm({ method: 'GET', url: QLD_GEO + '?SingleLine=' + encodeURIComponent(addr + ', QLD') + '&outSR=3857&maxLocations=1&f=json', timeout: 30000 });
+    let c = null; try { c = (JSON.parse(g.responseText).candidates || [])[0]; } catch (e) {}
+    if (!c || !c.location || (c.score || 0) < 80) throw new Error('the Queensland address search couldn\'t find ' + addr);
+    const x = c.location.x, y = c.location.y, h = 45;
+    const r = await gm({ method: 'GET', url: QLD_IMG + '?bbox=' + [x - h, y - h, x + h, y + h].join(',') + '&bboxSR=3857&imageSR=3857&size=1280,1280&format=jpg&f=image', responseType: 'blob', timeout: 60000 });
+    if (r.status != 200 || !r.response || !/image/.test(r.response.type || 'image')) throw new Error('the Queensland aerial photos said ' + r.status);
     return await b64Of(r.response);
   }
 
@@ -533,7 +549,7 @@ Answer with JSON only:
     const s = S();
     return '<div class="note set"><b>Settings (this device only)</b>' +
       '<label>Anthropic key</label><input type="password" data-key="anthropicKey" value="' + esc(aiKey()) + '">' +
-      '<label>Google Maps key (Maps Static API)</label><input type="password" data-key="googleKey" value="' + esc(mapsKey()) + '">' +
+      '<label>Google Maps key (optional: newer aerials than the Queensland photos, needs billing on the Google account)</label><input type="password" data-key="googleKey" value="' + esc(mapsKey()) + '">' +
       '<label>FieldViser API key</label><input type="password" data-key="fvKey" value="' + esc(fvKey()) + '">' +
       '<label>FieldViser address</label><input data-set="fvBase" value="' + esc(s.fvBase) + '">' +
       '<label>Todoist token (for Ask the builder follow ups)</label><input type="password" data-key="todoistToken" value="' + esc(tdToken()) + '">' +
