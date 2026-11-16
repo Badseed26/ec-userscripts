@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WRE job packs
 // @namespace    wre
-// @version      0.4.8
+// @version      0.4.9
 // @description  Job pack PDFs for Ambrose jobs. A Job packs button on the AroFlo calendar (above Solar orders) lists the Ambrose jobs booked in the next X days with tick boxes, and a Job pack button sits on each Ambrose task. Run reads the task, pulls the Ambrose site photos and mud map, gets an aerial of the address (Queensland Government photos, or Google with a key), has Haiku pick the photos for the PO rooms, write the job scope and flag anything odd, builds the pack in FieldViser through its API, then puts a share link on top of the task description and the PDF in the task's documents.
 // @match        https://office.aroflo.com/ims/Site/Calendar/*
 // @match        https://office.aroflo.com/ims/Site/Service/workrequest/*
@@ -116,21 +116,30 @@
     return { b64: await b64Of(out), w: c.width, h: c.height };
   }
 
-  // FieldViser /api/v1
+  // FieldViser /api/v1. A 429 or 5xx gets 3 more goes (2, 5 then 10 s) on calls that are safe to repeat: anything but
+  // adding a page or a marker, which could double up if the first one landed (JN 9415 and 9501 got a bare 503, 16/11).
+  // An error names the call so it's clear where it stopped.
   async function fv(method, path, body, raw) {
     if (!fvKey()) throw new Error('No FieldViser key. Add it under Settings');
-    const r = await gm({ method, url: fvBase() + '/api/v1' + path, timeout: raw ? 180000 : 90000, responseType: raw ? 'arraybuffer' : undefined,
-      headers: Object.assign({ Authorization: 'Bearer ' + fvKey() }, body !== undefined ? { 'Content-Type': 'application/json' } : {}),
-      data: body !== undefined ? JSON.stringify(body) : undefined });
-    if (r.status == 401 || r.status == 403) throw new Error('FieldViser didn\'t accept the key (or the key can\'t do that). Check it under Settings');
+    const what = method + ' ' + path.replace(/\/jobs\/[0-9a-f-]{20,}/, '/jobs/<job>').replace(/\/(pages|photos|markers)\/[^/]+/g, '/$1/<id>').split('?')[0];
+    const safe = !(method == 'POST' && /\/(pages|markers)$/.test(path));
+    let r = null;
+    for (let i = 0; i < 4; i++) {
+      r = await gm({ method, url: fvBase() + '/api/v1' + path, timeout: raw ? 180000 : 90000, responseType: raw ? 'arraybuffer' : undefined,
+        headers: Object.assign({ Authorization: 'Bearer ' + fvKey() }, body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+        data: body !== undefined ? JSON.stringify(body) : undefined });
+      if (!(r.status == 429 || r.status >= 500) || !safe || i == 3) break;
+      await sleep([2000, 5000, 10000][i]);
+    }
+    if (r.status == 401 || r.status == 403) throw new Error('FieldViser didn\'t accept the key (or the key can\'t do that) on ' + what + '. Check it under Settings');
     if (raw) {
-      if (r.status < 200 || r.status >= 300) throw new Error('FieldViser export said ' + r.status);
+      if (r.status < 200 || r.status >= 300) throw new Error('FieldViser said ' + r.status + ' on ' + what);
       const ver = ((r.responseHeaders || '').match(/x-pdf-version:\s*(\d+)/i) || [])[1] || '';
       return { b64: abToB64(r.response), ver: +ver || 0 };
     }
     let j = null; try { j = r.responseText ? JSON.parse(r.responseText) : {}; } catch (e) {}
     if (r.status == 404) return null;
-    if (r.status < 200 || r.status >= 300) throw new Error('FieldViser said ' + r.status + (j && j.error ? ': ' + j.error.message : ''));
+    if (r.status < 200 || r.status >= 300) throw new Error('FieldViser said ' + r.status + ' on ' + what + (j && j.error ? ': ' + j.error.message : (r.responseText ? ': ' + clean(String(r.responseText).replace(/<[^>]+>/g, ' ')).slice(0, 120) : '')));
     return j || {};
   }
 
