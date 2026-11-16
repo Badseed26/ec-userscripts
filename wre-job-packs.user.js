@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WRE job packs
 // @namespace    wre
-// @version      0.2
+// @version      0.3
 // @description  Job pack PDFs for Ambrose jobs. A Job packs button on the AroFlo calendar (above Solar orders) lists the Ambrose jobs booked in the next X days with tick boxes, and a Job pack button sits on each Ambrose task. Run reads the task, pulls the Ambrose site photos and mud map, gets an aerial of the address (Queensland Government photos, or Google with a key), has Haiku pick the photos for the PO rooms, write the job scope and flag anything odd, builds the pack in FieldViser through its API, then puts a share link on top of the task description and the PDF in the task's documents.
 // @match        https://office.aroflo.com/ims/Site/Calendar/*
 // @match        https://office.aroflo.com/ims/Site/Service/workrequest/*
@@ -34,7 +34,7 @@
   // Live updates (23/10): Tampermonkey only checks for a new version every few hours. This checks the repo's latest commit every
   // 2 min (free when nothing's changed) and keeps the newest code here, so a push runs on the next page load. If the new code needs
   // a permission this install hasn't got, or this browser won't run it, the built in copy below runs like before.
-  const __wreName = "wre-job-packs", __wreVer = "0.2", __wreHave = new Set(["// @connect ambrose-production.s3-ap-southeast-2.amazonaws.com", "// @connect api.anthropic.com", "// @connect api.github.com", "// @connect api.todoist.com", "// @connect ddxqoilvgipf7.cloudfront.net", "// @connect fieldviser.com", "// @connect maps.googleapis.com", "// @connect production-reportapi.ambrosebuilding.com.au", "// @connect raw.githubusercontent.com", "// @connect spatial-gis.information.qld.gov.au", "// @connect spatial-img.information.qld.gov.au", "// @connect testing.fieldviser.com", "// @grant GM_addValueChangeListener", "// @grant GM_getValue", "// @grant GM_openInTab", "// @grant GM_setValue", "// @grant GM_xmlhttpRequest", "// @grant unsafeWindow", "// @grant window.close", "// @match https://office.aroflo.com/ims/Site/Calendar/*", "// @match https://office.aroflo.com/ims/Site/Service/workrequest/*", "// @run-at document-idle"]);
+  const __wreName = "wre-job-packs", __wreVer = "0.3", __wreHave = new Set(["// @connect ambrose-production.s3-ap-southeast-2.amazonaws.com", "// @connect api.anthropic.com", "// @connect api.github.com", "// @connect api.todoist.com", "// @connect ddxqoilvgipf7.cloudfront.net", "// @connect fieldviser.com", "// @connect maps.googleapis.com", "// @connect production-reportapi.ambrosebuilding.com.au", "// @connect raw.githubusercontent.com", "// @connect spatial-gis.information.qld.gov.au", "// @connect spatial-img.information.qld.gov.au", "// @connect testing.fieldviser.com", "// @grant GM_addValueChangeListener", "// @grant GM_getValue", "// @grant GM_openInTab", "// @grant GM_setValue", "// @grant GM_xmlhttpRequest", "// @grant unsafeWindow", "// @grant window.close", "// @match https://office.aroflo.com/ims/Site/Calendar/*", "// @match https://office.aroflo.com/ims/Site/Service/workrequest/*", "// @run-at document-idle"]);
   const __wreInfo0 = typeof GM_info != 'undefined' ? GM_info : null;
   const __wreSay = m => { try { console.log('[WRE live update] ' + __wreName + ': ' + m); } catch (e) {} };
   const __wreCmp = (a, b) => { const x = String(a).split('.').map(Number), y = String(b).split('.').map(Number); for (let i = 0; i < Math.max(x.length, y.length); i++) { const d = (x[i] || 0) - (y[i] || 0); if (d) return d; } return 0; };
@@ -85,7 +85,7 @@
   }
   if (window.top === window.self) { __wreCheck(); setInterval(__wreCheck, 2 * 60e3 + 5000); }
   if (__wreLive()) return;
-  // ---------- the built in copy (src/wre-job-packs.js at 0.2) ----------
+  // ---------- the built in copy (src/wre-job-packs.js at 0.3) ----------
 
 (function () {
   'use strict';
@@ -345,7 +345,7 @@ Answer with JSON only:
       const u = 'https://maps.googleapis.com/maps/api/staticmap?center=' + encodeURIComponent(addr + ', QLD, Australia') + '&zoom=20&size=640x640&scale=2&maptype=satellite&format=jpg&key=' + encodeURIComponent(mapsKey());
       const r = await gm({ method: 'GET', url: u, responseType: 'blob', timeout: 30000 });
       if (r.status != 200 || !r.response || !/image/.test(r.response.type || 'image')) throw new Error('Google Maps said ' + r.status + ' (check the key has the Maps Static API on, or clear it to use the Queensland photos)');
-      return await b64Of(r.response);
+      return { b64: await b64Of(r.response), when: null, google: true };
     }
     const g = await gm({ method: 'GET', url: QLD_GEO + '?SingleLine=' + encodeURIComponent(addr + ', QLD') + '&outSR=3857&maxLocations=1&f=json', timeout: 30000 });
     let c = null; try { c = (JSON.parse(g.responseText).candidates || [])[0]; } catch (e) {}
@@ -353,7 +353,15 @@ Answer with JSON only:
     const x = c.location.x, y = c.location.y, h = 45;
     const r = await gm({ method: 'GET', url: QLD_IMG + '?bbox=' + [x - h, y - h, x + h, y + h].join(',') + '&bboxSR=3857&imageSR=3857&size=1280,1280&format=jpg&f=image', responseType: 'blob', timeout: 60000 });
     if (r.status != 200 || !r.response || !/image/.test(r.response.type || 'image')) throw new Error('the Queensland aerial photos said ' + r.status);
-    return await b64Of(r.response);
+    // which flyover that is: the photo sets over the spot, the one drawn on top has the lowest zorder (the 2017 satellite
+    // mosaic sits underneath everything at 2.4 m a pixel, only showing where there's no flyover). 0.3, 16/11.
+    let when = null;
+    try {
+      const q = JSON.parse((await gm({ method: 'GET', url: QLD_IMG.replace(/exportImage$/, 'query') + '?geometry=' + x + ',' + y + '&geometryType=esriGeometryPoint&inSR=3857&spatialRel=esriSpatialRelIntersects&outFields=name,captureend,zorder,res_value,res_unit&returnGeometry=false&f=json', timeout: 30000 })).responseText);
+      const f = (q.features || []).map(z => z.attributes).sort((a, b) => a.zorder - b.zorder)[0];
+      if (f && f.captureend) { const d = new Date(f.captureend); when = { at: f.captureend, txt: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][d.getMonth()] + ' ' + d.getFullYear(), sat: /QSat|Planet/i.test(f.name || ''), name: f.name || '' }; }
+    } catch (e) {}
+    return { b64: await b64Of(r.response), when };
   }
 
   // ---------- FieldViser ----------
@@ -371,7 +379,7 @@ Answer with JSON only:
     let pages = job.pages || (await fv('GET', '/jobs/' + id + '/pages')).pages || [];
     // aerial page, with a pin on the address (the middle of the picture)
     say('FieldViser: aerial');
-    const air = await aerial(F.addr);
+    const AIR = await aerial(F.addr), air = AIR.b64;
     let ap = pages.find(p => /^aerial$/i.test(p.name));
     if (!ap && pages.length == 1 && !pages[0].has_image && !(pages[0].markers || []).length) { ap = pages[0]; await fv('PATCH', '/jobs/' + id + '/pages/' + ap.id, { name: 'Aerial', in_pdf: true }); }
     if (ap) await fv('PUT', '/jobs/' + id + '/pages/' + ap.id + '/image', { image: air });
@@ -403,7 +411,7 @@ Answer with JSON only:
     }
     for (const o of old) if (!want.find(w => w.ext == o.external_id)) await fv('DELETE', '/jobs/' + id + '/photos/' + encodeURIComponent(o.external_id));
     if (want.length) await fv('PUT', '/jobs/' + id + '/photos/order', { ids: want.map(w => w.ext) });
-    return await fvFinish(id, say);
+    return Object.assign(await fvFinish(id, say), { air: AIR });
   }
   async function fvFinish(id, say) {
     say('FieldViser: building the PDF');
@@ -424,8 +432,13 @@ Answer with JSON only:
     if (!A.photos.length && !A.mud) throw new Error('Ambrose has no photos on this job yet');
     const P = await pick(F, A, say);
     const R = await fvBuild(F, A, P, say);
+    // old or blurry aerial: an info flag (Ignore only), the date shows on every result either way
+    const aw = R.air && R.air.when;
+    if (aw && (aw.sat || now() - aw.at > 5 * 365.25 * 864e5)) P.flags.push({ id: 'air', info: true, state: '',
+      text: aw.sat ? 'No flyover photo here, the aerial is the blurry 2017 satellite one' : 'Aerial photo is from ' + aw.txt + ', over 5 years old',
+      guess: 'Check Google Maps for anything new on the block (extension, granny flat, pool, solar)' });
     const st = setJst(F.jn, { F, claim: A.claim, P: { sections: P.sections.map(s => ({ name: s.name, photos: s.photos.map(p => p.rec) })), scope: P.scope, heads: P.heads },
-      flags: P.flags, seen: A.photos.map(p => p.rec).concat(A.mud ? [A.mud.rec] : []), newest: A.newest, fvId: R.fvId, ver: R.ver, share: R.share, cost: P.cost, err: '', pushed: null });
+      flags: P.flags, aerial: aw ? aw.txt : (R.air && R.air.google ? 'Google' : ''), seen: A.photos.map(p => p.rec).concat(A.mud ? [A.mud.rec] : []), newest: A.newest, fvId: R.fvId, ver: R.ver, share: R.share, cost: P.cost, err: '', pushed: null });
     GM_setValue('jpPush:' + F.jn, { pdf: R.pdf, name: pdfName(F, R.ver), line: 'JOB PACK: ' + R.share, ver: R.ver, at: now() });
     return st;
   }
@@ -600,7 +613,7 @@ Answer with JSON only:
     else if (GM_getValue('jpPush:' + jn, null)) h += '<div class="sub">AroFlo step waiting</div><div class="row"><button class="btn sm ghost" data-a="push" data-jn="' + jn + '">Put it in AroFlo</button></div>';
     (s.flags || []).filter(f => f.state != 'ignored').forEach(f => {
       h += '<div class="flag"><b>' + esc(f.text) + '</b>' + (f.guess ? '<div class="sub">' + esc(f.guess) + '</div>' : '') +
-        (f.state == 'heads' ? '<div class="sub">On the cover heads up</div>' : f.state == 'asked' ? '<div class="sub">Draft copied' + (tdToken() ? ', follow up added' : '') + '</div>' :
+        (f.info ? '<div class="row"><button class="btn sm ghost" data-a="ign" data-jn="' + jn + '" data-f="' + f.id + '">Ignore</button></div>' : f.state == 'heads' ? '<div class="sub">On the cover heads up</div>' : f.state == 'asked' ? '<div class="sub">Draft copied' + (tdToken() ? ', follow up added' : '') + '</div>' :
         '<div class="row"><button class="btn sm" data-a="heads" data-jn="' + jn + '" data-f="' + f.id + '">Add to heads up</button><button class="btn sm grey" data-a="ask" data-jn="' + jn + '" data-f="' + f.id + '">Ask the builder</button><button class="btn sm ghost" data-a="ign" data-jn="' + jn + '" data-f="' + f.id + '">Ignore</button></div>') + '</div>';
     });
     return h;
