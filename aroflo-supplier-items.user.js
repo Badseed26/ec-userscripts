@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AroFlo supplier items
 // @namespace    wre
-// @version      0.36
+// @version      0.37
 // @description  Supplier button on AroFlo quotes: search CNW and Tradezone with your own sign ins, pick an item, set the qty and it adds the line (item, part no, qty, cost in Value). Markup left alone, you press Save Quote. Order puts the quote's parts in your CNW or Tradezone cart (never checks out). Reprice, price compare, favourites, recents, stock at nearby branches and price history, synced through Todoist. Build from notes: AI reads the task and your notes into a priced, one-supplier material list for you to check.
 // @match        https://office.aroflo.com/ims/Site/Service/Quotes/*
 // @match        https://shop.cnw.com.au/*
@@ -26,7 +26,7 @@
   // Live updates (23/10): Tampermonkey only checks for a new version every few hours. This checks the repo's latest commit every
   // 2 min (free when nothing's changed) and keeps the newest code here, so a push runs on the next page load. If the new code needs
   // a permission this install hasn't got, or this browser won't run it, the built in copy below runs like before.
-  const __wreName = "aroflo-supplier-items", __wreVer = "0.36", __wreHave = new Set(["// @connect api.anthropic.com", "// @connect api.github.com", "// @connect api.todoist.com", "// @connect raw.githubusercontent.com", "// @connect shop.cnw.com.au", "// @connect www.tradezone.com.au", "// @grant GM_getValue", "// @grant GM_setValue", "// @grant GM_xmlhttpRequest", "// @grant unsafeWindow", "// @match https://office.aroflo.com/ims/Site/Service/Quotes/*", "// @match https://shop.cnw.com.au/*", "// @match https://www.tradezone.com.au/*", "// @run-at document-idle"]);
+  const __wreName = "aroflo-supplier-items", __wreVer = "0.37", __wreHave = new Set(["// @connect api.anthropic.com", "// @connect api.github.com", "// @connect api.todoist.com", "// @connect raw.githubusercontent.com", "// @connect shop.cnw.com.au", "// @connect www.tradezone.com.au", "// @grant GM_getValue", "// @grant GM_setValue", "// @grant GM_xmlhttpRequest", "// @grant unsafeWindow", "// @match https://office.aroflo.com/ims/Site/Service/Quotes/*", "// @match https://shop.cnw.com.au/*", "// @match https://www.tradezone.com.au/*", "// @run-at document-idle"]);
   const __wreInfo0 = typeof GM_info != 'undefined' ? GM_info : null;
   const __wreSay = m => { try { console.log('[WRE live update] ' + __wreName + ': ' + m); } catch (e) {} };
   const __wreCmp = (a, b) => { const x = String(a).split('.').map(Number), y = String(b).split('.').map(Number); for (let i = 0; i < Math.max(x.length, y.length); i++) { const d = (x[i] || 0) - (y[i] || 0); if (d) return d; } return 0; };
@@ -77,7 +77,7 @@
   }
   if (window.top === window.self) { __wreCheck(); setInterval(__wreCheck, 2 * 60e3 + 5000); }
   if (__wreLive()) return;
-  // ---------- the built in copy (src/aroflo-supplier-items.js at 0.36) ----------
+  // ---------- the built in copy (src/aroflo-supplier-items.js at 0.37) ----------
 
 (function () {
   'use strict';
@@ -364,8 +364,9 @@
       const whole = clean((row.querySelector('.location_and_qty') || row).textContent);
       let name = clean(whole.replace(qt, '').replace(/add to cart/i, ''));
       if (!name) name = clean(whole.split(/\d/)[0]);
-      const n = (qt.match(/\d[\d,]*/) || ['0'])[0];
-      return { name, qty: Number(n.replace(/,/g, '')) };
+      // "37 In Stock" is 37; "Back In 23/11/2026" (or anything else) is none, not 23 (16/11)
+      const m = qt.match(/([\d,]+)\s*in\s*stock/i) || (/^[\d,]+$/.test(qt) ? [0, qt] : null);
+      return { name, qty: m ? Number(m[1].replace(/,/g, '')) : 0 };
     }).filter(b => b.name);
     if (it.branches.length) tzSeen(it.branches.map(b => b.name));
     if (!it.name) it.name = clean((d.querySelector('h1') || {}).textContent) || clean((d.querySelector('meta[property="og:title"]') || { getAttribute: () => '' }).getAttribute('content'));

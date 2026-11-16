@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AroFlo supplier items
 // @namespace    wre
-// @version      0.36
+// @version      0.37
 // @description  Supplier button on AroFlo quotes: search CNW and Tradezone with your own sign ins, pick an item, set the qty and it adds the line (item, part no, qty, cost in Value). Markup left alone, you press Save Quote. Order puts the quote's parts in your CNW or Tradezone cart (never checks out). Reprice, price compare, favourites, recents, stock at nearby branches and price history, synced through Todoist. Build from notes: AI reads the task and your notes into a priced, one-supplier material list for you to check.
 // @match        https://office.aroflo.com/ims/Site/Service/Quotes/*
 // @match        https://shop.cnw.com.au/*
@@ -304,8 +304,9 @@
       const whole = clean((row.querySelector('.location_and_qty') || row).textContent);
       let name = clean(whole.replace(qt, '').replace(/add to cart/i, ''));
       if (!name) name = clean(whole.split(/\d/)[0]);
-      const n = (qt.match(/\d[\d,]*/) || ['0'])[0];
-      return { name, qty: Number(n.replace(/,/g, '')) };
+      // "37 In Stock" is 37; "Back In 23/11/2026" (or anything else) is none, not 23 (16/11)
+      const m = qt.match(/([\d,]+)\s*in\s*stock/i) || (/^[\d,]+$/.test(qt) ? [0, qt] : null);
+      return { name, qty: m ? Number(m[1].replace(/,/g, '')) : 0 };
     }).filter(b => b.name);
     if (it.branches.length) tzSeen(it.branches.map(b => b.name));
     if (!it.name) it.name = clean((d.querySelector('h1') || {}).textContent) || clean((d.querySelector('meta[property="og:title"]') || { getAttribute: () => '' }).getAttribute('content'));

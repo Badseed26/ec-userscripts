@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WRE solar orders
 // @namespace    wre
-// @version      0.4
+// @version      0.5
 // @description  Solar orders button on the AroFlo calendar: lists the solar replacement jobs booked in the next X days with the lads' notes, the PO, photos and your notes, works out the panels and inverter from the label photos and notes (Haiku sorts the photos, Opus reads them), adds rails and TIN kits by rule, matches it all on Tradezone with Gold Coast stock, runs a checklist, keeps approved orders in Todoist and loads one job at a time into the Tradezone cart with the PO ref. Never orders, you do that.
 // @match        https://office.aroflo.com/ims/Site/Calendar/*
 // @grant        GM_xmlhttpRequest
@@ -315,6 +315,13 @@ Answer with JSON only:
   }
   // the product photo off a card (lazy loaded ones keep the real address in data-src), same as the supplier window
   const imgOf = (el, prefer) => { if (!el) return ''; const i = (prefer && el.querySelector(prefer)) || el.querySelector('img'); if (!i) return ''; const u = ['data-src', 'data-original', 'data-lazy', 'data-srcset', 'srcset', 'src'].map(a => (i.getAttribute(a) || '').split(',')[0].trim().split(' ')[0]).find(x => x && !/^data:|placeholder|loading|blank|spacer|\.gif$/i.test(x)) || ''; try { return u ? new URL(u, TZ).href : ''; } catch (e) { return ''; } };
+  // a branch's stock line: "37 In Stock" is 37, "Back In 23/11/2026" is none (with the date), anything else is none
+  function tzQty(t) {
+    t = clean(t);
+    const back = (t.match(/back\s*in\s*:?\s*(\d{1,2}\/\d{1,2}(?:\/\d{2,4})?)/i) || [])[1] || '';
+    const m = t.match(/([\d,]+)\s*in\s*stock/i) || (/^[\d,]+$/.test(t) ? [0, t] : null);
+    return { qty: m ? Number(m[1].replace(/,/g, '')) : 0, back: back.replace(/\/(\d{4})$/, (x, y) => y == String(new Date().getFullYear()) ? '' : x) };
+  }
   // a product page has the stock per branch
   async function tzStock(it) {
     if (!it || !it.href || it.bq != null) return;
@@ -323,10 +330,10 @@ Answer with JSON only:
     const rows = [...d.querySelectorAll('label.selector_row, .selector_rows .selector_row')].map(row => {
       const qt = clean((row.querySelector('.qty') || {}).textContent);
       const name = clean(clean((row.querySelector('.location_and_qty') || row).textContent).replace(qt, '').replace(/add to cart/i, ''));
-      return { name, qty: Number(((qt.match(/\d[\d,]*/) || ['0'])[0]).replace(/,/g, '')) };
+      return Object.assign({ name }, tzQty(qt));
     });
     const b = rows.find(x => x.name.toLowerCase() == want) || rows.find(x => x.name.toLowerCase().includes(want));
-    it.bq = b ? b.qty : (rows.length ? 0 : null);
+    it.bq = b ? b.qty : (rows.length ? 0 : null); it.back = b ? b.back : '';
     if (!it.img) { const og = d.querySelector('meta[property="og:image"]'); if (og) it.img = og.getAttribute('content') || ''; }
     if (!it.price) { const m = clean((d.querySelector('.price_and_points') || {}).textContent).match(/\$\s*([\d,]+\.\d{2})\s*ex/i); if (m) it.price = Number(m[1].replace(/,/g, '')); }
   }
@@ -405,7 +412,7 @@ Answer with JSON only:
     job.busy = false; draw(job.wrid);
   }
   const slimLine = l => ({ kind: l.kind, qty: l.qty, need: l.need, terms: l.terms || [], source: l.source || '', inferred: !!l.inferred, how: l.how || '', pick: l.pick ? slimIt(l.pick) : null, cand: (l.cand || []).map(slimIt) });
-  const slimIt = x => ({ id: x.id, code: x.code, name: x.name, href: x.href, price: x.price, stock: x.stock, bq: x.bq == null ? null : x.bq, img: x.img || '' });
+  const slimIt = x => ({ id: x.id, code: x.code, name: x.name, href: x.href, price: x.price, stock: x.stock, bq: x.bq == null ? null : x.bq, back: x.back || '', img: x.img || '' });
 
   // checklist: only the ones that apply to this job, each one ticked or agreed past before the cart
   function checks(job) {
@@ -420,7 +427,7 @@ Answer with JSON only:
     if (a.phase == 'unknown') out.push({ k: 'phase', t: 'Single or 3 phase not stated, check the inverter' });
     (s.lines || []).forEach((l, i) => {
       if (l.inferred) out.push({ k: 'inf' + i + l.need, t: 'Inferred: ' + l.need + (l.source ? ' (' + l.source + ')' : '') });
-      if (l.pick && l.pick.bq != null && l.pick.bq < l.qty) out.push({ k: 'stk' + i + l.pick.code + l.qty, t: (l.pick.code || l.need) + ': only ' + l.pick.bq + ' at ' + S().branch + ', need ' + l.qty, red: true });
+      if (l.pick && l.pick.bq != null && l.pick.bq < l.qty) out.push({ k: 'stk' + i + l.pick.code + l.qty, t: (l.pick.code || l.need) + ': only ' + l.pick.bq + ' at ' + S().branch + ', need ' + l.qty + (l.pick.back ? ' (back in ' + l.pick.back + ')' : ''), red: true });
       if (l.pick && l.how == 'best match' && (l.kind == 'panel' || l.kind == 'inverter')) out.push({ k: 'mt' + i + l.pick.code, t: 'Check the match: ' + l.need + ' → ' + l.pick.name });
     });
     (job.others || []).forEach(o => out.push({ k: 'oth' + o.jn, t: 'Other task at this address: JN ' + o.jn + ' ' + o.task + ' (' + o.status + ')', red: true }));
@@ -518,6 +525,16 @@ Answer with JSON only:
       W.open(TZ + '/checkout/cart/', '_blank');
     } catch (e) { job.err = String(e.message || e); job.msg = ''; }
     job.busy = false; draw(job.wrid);
+  }
+
+  // stock on a saved order goes stale (and 0.4 and before read a back in date as stock), so it's re-read each time the card opens
+  async function freshStock(job) {
+    const s = st(job.wrid), picks = (s.lines || []).map(l => l.pick).filter(Boolean);
+    if (!picks.length || job.stockAt > Date.now() - 5 * 60e3) return;
+    job.stockAt = Date.now();
+    picks.forEach(x => { x.bq = null; x.back = ''; });
+    await pool(picks, 4, x => tzStock(x).catch(() => {}));
+    touch(job.wrid); draw(job.wrid);
   }
 
   // ---------- the list ----------
@@ -792,7 +809,7 @@ Tradezone branch <select class="in" data-set="branch">${Object.keys(TZLOC).map(b
   // without one (0.1 missed them) still gets its pic
   const picOf = x => x ? (/^\d+$/.test(String(x.id || '')) ? 'https://media.tradezone.com.au/images/still/300/300/' + x.id + '/30.jpg' : x.img || '') : '';
   const thumb = (x, act, i) => picOf(x) ? `<img class="th" src="${esc(picOf(x))}" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.visibility='hidden'"${act ? ` data-a="${act}" data-i="${i}"` : ''}>` : `<div class="th none"${act ? ` data-a="${act}" data-i="${i}"` : ''}>no pic</div>`;
-  const stockTxt = (x, q) => x.bq == null ? esc(x.stock || 'stock ?') : '<span class="' + (x.bq >= (q || 1) ? 'ok' : 'red') + '">' + esc(S().branch) + ' ' + x.bq + '</span>';
+  const stockTxt = (x, q) => x.bq == null ? esc(x.stock || 'stock ?') : '<span class="' + (x.bq >= (q || 1) ? 'ok' : 'red') + '">' + esc(S().branch) + ' ' + x.bq + (x.back ? ', back in ' + esc(x.back) : '') + '</span>';
 
   // the product picker: a proper window with pics, price and branch stock, like the quote one. i is the line, or 'new' to add one.
   function picker(job, i) {
@@ -867,6 +884,7 @@ Tradezone branch <select class="in" data-set="branch">${Object.keys(TZLOC).map(b
     if (a == 'tog') {
       open[job.wrid] = !open[job.wrid]; draw(job.wrid);
       if (open[job.wrid] && !job.loaded && !job.loading) { job.loading = true; draw(job.wrid); try { await loadJob(job); } catch (er) { job.err = er.message; } job.loading = false; draw(job.wrid); }
+      if (open[job.wrid]) freshStock(job);
       return;
     }
     if (a == 'pdf') { const p = poPdf(job); if (p) W.open(p.orig, '_blank'); return; }
