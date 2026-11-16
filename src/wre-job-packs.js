@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WRE job packs
 // @namespace    wre
-// @version      0.4
+// @version      0.4.1
 // @description  Job pack PDFs for Ambrose jobs. A Job packs button on the AroFlo calendar (above Solar orders) lists the Ambrose jobs booked in the next X days with tick boxes, and a Job pack button sits on each Ambrose task. Run reads the task, pulls the Ambrose site photos and mud map, gets an aerial of the address (Queensland Government photos, or Google with a key), has Haiku pick the photos for the PO rooms, write the job scope and flag anything odd, builds the pack in FieldViser through its API, then puts a share link on top of the task description and the PDF in the task's documents.
 // @match        https://office.aroflo.com/ims/Site/Calendar/*
 // @match        https://office.aroflo.com/ims/Site/Service/workrequest/*
@@ -378,7 +378,7 @@ Answer with JSON only: {"pin_on_house":true,"house_in_frame":"whole","note":""} 
     // Haiku looks at the finished aerial: a big rural block can have its address point out on the road, so the pin (the
     // middle of the picture) misses the house or the house is half out of frame. Info flag only, Ignore. 0.4, 16/11.
     try {
-      const small = (await jpeg(await (await fetch('data:image/jpeg;base64,' + R.air.b64)).blob(), 768, 0.8)).b64;
+      const small = (await jpeg(new Blob([Uint8Array.from(atob(R.air.b64), ch => ch.charCodeAt(0))], { type: 'image/jpeg' }), 768, 0.8)).b64;
       const o = await claude(MODELS.haiku, AIR_SYS, [{ type: 'text', text: 'Address: ' + F.addr }, { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: small } }], 300);
       P.cost = (P.cost || 0) + (o._cost || 0);
       if (o.pin_on_house === false || (o.house_in_frame && o.house_in_frame != 'whole')) P.flags.push({ id: 'pin', info: true, state: '',
