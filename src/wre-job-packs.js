@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WRE job packs
 // @namespace    wre
-// @version      0.3
+// @version      0.4
 // @description  Job pack PDFs for Ambrose jobs. A Job packs button on the AroFlo calendar (above Solar orders) lists the Ambrose jobs booked in the next X days with tick boxes, and a Job pack button sits on each Ambrose task. Run reads the task, pulls the Ambrose site photos and mud map, gets an aerial of the address (Queensland Government photos, or Google with a key), has Haiku pick the photos for the PO rooms, write the job scope and flag anything odd, builds the pack in FieldViser through its API, then puts a share link on top of the task description and the PDF in the task's documents.
 // @match        https://office.aroflo.com/ims/Site/Calendar/*
 // @match        https://office.aroflo.com/ims/Site/Service/workrequest/*
@@ -241,6 +241,9 @@ Drop: electrical fittings outside the area of works (downlights, GPOs, fans in r
 Answer with JSON only:
 {"general":[1,5],"rooms":[{"name":"Kitchen","photos":[3,4]}],"scope":[{"heading":"Kitchen","points":["Disconnect, store, label and reconnect GPO x2"]}],"heads_up":"","flags":[{"text":"Oven listed under the study","guess":"Probably the kitchen oven, study GPO only"}]}`;
 
+  const AIR_SYS = `You check an aerial photo for an electrician's job pack. The photo is about 90 m square, centred on the street address's map point, and a pin gets drawn at the exact centre. On big rural blocks the map point can sit out by the road, away from the house.
+Say whether the centre of the photo is on (or right beside) the main house, and how much of the main house is in the photo. If there are several buildings, the main house is the biggest roofed dwelling near the centre. "note" is a few words on where the house is if the pin misses it (e.g. "house is top left, pin is on the driveway"), else "".
+Answer with JSON only: {"pin_on_house":true,"house_in_frame":"whole","note":""}  (house_in_frame is whole, part or none)`;
   async function claude(model, system, content, maxTokens, effort) {
     if (!aiKey()) throw new Error('No Anthropic key. Add it under Settings');
     const body = { model, max_tokens: maxTokens, system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }], messages: [{ role: 'user', content }] };
@@ -372,6 +375,15 @@ Answer with JSON only:
     if (!A.photos.length && !A.mud) throw new Error('Ambrose has no photos on this job yet');
     const P = await pick(F, A, say);
     const R = await fvBuild(F, A, P, say);
+    // Haiku looks at the finished aerial: a big rural block can have its address point out on the road, so the pin (the
+    // middle of the picture) misses the house or the house is half out of frame. Info flag only, Ignore. 0.4, 16/11.
+    try {
+      const small = (await jpeg(await (await fetch('data:image/jpeg;base64,' + R.air.b64)).blob(), 768, 0.8)).b64;
+      const o = await claude(MODELS.haiku, AIR_SYS, [{ type: 'text', text: 'Address: ' + F.addr }, { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: small } }], 300);
+      P.cost = (P.cost || 0) + (o._cost || 0);
+      if (o.pin_on_house === false || (o.house_in_frame && o.house_in_frame != 'whole')) P.flags.push({ id: 'pin', info: true, state: '',
+        text: o.pin_on_house === false ? 'The aerial\'s pin doesn\'t look like it\'s on the house' : 'The house is only partly in the aerial', guess: clean(o.note) || 'Big block maybe, check the aerial page' });
+    } catch (e) {}
     // old or blurry aerial: an info flag (Ignore only), the date shows on every result either way
     const aw = R.air && R.air.when;
     if (aw && (aw.sat || now() - aw.at > 5 * 365.25 * 864e5)) P.flags.push({ id: 'air', info: true, state: '',
