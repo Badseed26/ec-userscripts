@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WRE solar orders
 // @namespace    wre
-// @version      0.5
+// @version      0.6
 // @description  Solar orders button on the AroFlo calendar: lists the solar replacement jobs booked in the next X days with the lads' notes, the PO, photos and your notes, works out the panels and inverter from the label photos and notes (Haiku sorts the photos, Opus reads them), adds rails and TIN kits by rule, matches it all on Tradezone with Gold Coast stock, runs a checklist, keeps approved orders in Todoist and loads one job at a time into the Tradezone cart with the PO ref. Never orders, you do that.
 // @match        https://office.aroflo.com/ims/Site/Calendar/*
 // @grant        GM_xmlhttpRequest
@@ -23,7 +23,7 @@
   // Live updates (23/10): Tampermonkey only checks for a new version every few hours. This checks the repo's latest commit every
   // 2 min (free when nothing's changed) and keeps the newest code here, so a push runs on the next page load. If the new code needs
   // a permission this install hasn't got, or this browser won't run it, the built in copy below runs like before.
-  const __wreName = "wre-solar-orders", __wreVer = "0.5", __wreHave = new Set(["// @connect api.anthropic.com", "// @connect api.github.com", "// @connect api.todoist.com", "// @connect raw.githubusercontent.com", "// @connect www.tradezone.com.au", "// @grant GM_getValue", "// @grant GM_setValue", "// @grant GM_xmlhttpRequest", "// @grant unsafeWindow", "// @match https://office.aroflo.com/ims/Site/Calendar/*", "// @run-at document-idle"]);
+  const __wreName = "wre-solar-orders", __wreVer = "0.6", __wreHave = new Set(["// @connect api.anthropic.com", "// @connect api.github.com", "// @connect api.todoist.com", "// @connect raw.githubusercontent.com", "// @connect www.tradezone.com.au", "// @grant GM_getValue", "// @grant GM_setValue", "// @grant GM_xmlhttpRequest", "// @grant unsafeWindow", "// @match https://office.aroflo.com/ims/Site/Calendar/*", "// @run-at document-idle"]);
   const __wreInfo0 = typeof GM_info != 'undefined' ? GM_info : null;
   const __wreSay = m => { try { console.log('[WRE live update] ' + __wreName + ': ' + m); } catch (e) {} };
   const __wreCmp = (a, b) => { const x = String(a).split('.').map(Number), y = String(b).split('.').map(Number); for (let i = 0; i < Math.max(x.length, y.length); i++) { const d = (x[i] || 0) - (y[i] || 0); if (d) return d; } return 0; };
@@ -74,7 +74,7 @@
   }
   if (window.top === window.self) { __wreCheck(); setInterval(__wreCheck, 2 * 60e3 + 5000); }
   if (__wreLive()) return;
-  // ---------- the built in copy (src/wre-solar-orders.js at 0.5) ----------
+  // ---------- the built in copy (src/wre-solar-orders.js at 0.6) ----------
 
 (function () {
   'use strict';
@@ -719,15 +719,24 @@ Answer with JSON only:
   // Desktop Website, pinched in or with the keyboard up. The page underneath is pinned while it's open.
   const MOBILE = (navigator.maxTouchPoints > 0 && Math.min(screen.width, screen.height) < 700) || /iPhone|iPod|Android.+Mobile/.test(navigator.userAgent);
   const view = () => { const vv = W.visualViewport || { width: innerWidth, height: innerHeight, offsetLeft: 0, offsetTop: 0 }; const sw = vv.width > vv.height ? Math.max(screen.width, screen.height) : Math.min(screen.width, screen.height); return { vv, sw, k: vv.width / sw }; };
+  // zoom, not a scale transform: iPhone Safari draws a scaled up layer blurry until it gets round to redrawing it a minute
+  // or two later (16/11). Zoom lays it out at the bigger size so it's sharp straight away. If this browser doesn't scale
+  // left and top with the zoom, the measured spot says so and it's put back by hand.
+  const zoomTo = (el, L, T, k, w, h) => {
+    const st = { transform: '', zoom: String(k), left: (L / k) + 'px', top: (T / k) + 'px' };
+    if (w != null) st.width = w + 'px'; if (h != null) st.height = h + 'px';
+    Object.assign(el.style, st);
+    const r = el.getBoundingClientRect(); if (Math.abs(r.left - L) > 2 || Math.abs(r.top - T) > 2) Object.assign(el.style, { left: L + 'px', top: T + 'px' });
+  };
   function fitEl(el) {
     if (!MOBILE || !el || !el.isConnected) return;
     const { vv, sw, k } = view();
-    Object.assign(el.style, { left: vv.offsetLeft + 'px', top: vv.offsetTop + 'px', width: sw + 'px', height: (vv.height / k) + 'px', transform: 'scale(' + k + ')' });
+    zoomTo(el, vv.offsetLeft, vv.offsetTop, k, sw, vv.height / k);
   }
   function fitBtn() {
     const b = document.getElementById('wso-btn'); if (!MOBILE || !b) return;
     const { vv, k } = view();
-    Object.assign(b.style, { left: (vv.offsetLeft + 14 * k) + 'px', top: (vv.offsetTop + vv.height - 64 * k) + 'px', transform: 'scale(' + k + ')' });
+    zoomTo(b, vv.offsetLeft + 14 * k, vv.offsetTop + vv.height - 64 * k, k);
   }
   const fitAll = () => { [P, document.getElementById('wso-pk'), document.getElementById('wso-lb')].forEach(fitEl); fitBtn(); };
   let locked = null;

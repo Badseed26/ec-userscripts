@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AroFlo supplier items
 // @namespace    wre
-// @version      0.37
+// @version      0.38
 // @description  Supplier button on AroFlo quotes: search CNW and Tradezone with your own sign ins, pick an item, set the qty and it adds the line (item, part no, qty, cost in Value). Markup left alone, you press Save Quote. Order puts the quote's parts in your CNW or Tradezone cart (never checks out). Reprice, price compare, favourites, recents, stock at nearby branches and price history, synced through Todoist. Build from notes: AI reads the task and your notes into a priced, one-supplier material list for you to check.
 // @match        https://office.aroflo.com/ims/Site/Service/Quotes/*
 // @match        https://shop.cnw.com.au/*
@@ -1144,12 +1144,21 @@ ${x ? `<div class="mt">Ordering ${esc(x.sup)} ${money(x.price)}${x.uom ? '/' + e
   // On a phone the window fills the screen like an app page, sized to what's actually on screen (so it's the right
   // size even with AroFlo on Request Desktop Website, pinched in or with the keyboard up).
   const MOBILE = (navigator.maxTouchPoints > 0 && Math.min(screen.width, screen.height) < 700) || /iPhone|iPod|Android.+Mobile/.test(navigator.userAgent);
+  // zoom, not a scale transform: iPhone Safari draws a scaled up layer blurry until it gets round to redrawing it a minute
+  // or two later (16/11). Zoom lays it out at the bigger size so it's sharp straight away. If this browser doesn't scale
+  // left and top with the zoom, the measured spot says so and it's put back by hand.
+  const zoomTo = (el, L, T, k, w, h) => {
+    const st = { transform: '', zoom: String(k), left: (L / k) + 'px', top: (T / k) + 'px' };
+    if (w != null) st.width = w + 'px'; if (h != null) st.height = h + 'px';
+    Object.assign(el.style, st);
+    const r = el.getBoundingClientRect(); if (Math.abs(r.left - L) > 2 || Math.abs(r.top - T) > 2) Object.assign(el.style, { left: L + 'px', top: T + 'px' });
+  };
   function fit() {
     if (!MOBILE || !box || box.style.display == 'none') return;
     const vv = W.visualViewport || { width: innerWidth, height: innerHeight, offsetLeft: 0, offsetTop: 0 };
     const sw = vv.width > vv.height ? Math.max(screen.width, screen.height) : Math.min(screen.width, screen.height);
     const k = vv.width / sw;
-    Object.assign(box.style, { left: vv.offsetLeft + 'px', top: vv.offsetTop + 'px', width: sw + 'px', height: (vv.height / k) + 'px', transform: 'scale(' + k + ')' });
+    zoomTo(box, vv.offsetLeft, vv.offsetTop, k, sw, vv.height / k);
   }
   // iPhone Safari ignores overflow:hidden for finger scrolling, so the page gets pinned in place while the window's
   // open (and put back where it was on close), and a drag that isn't on the list itself goes nowhere.
