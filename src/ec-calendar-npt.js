@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         WRE Calendar NPT
-// @namespace    wre
-// @version      3.3.0
-// @description  Notes, photos and timesheet badges on the AroFlo calendar for the days in view, kept in step with the WRE daily check issue list in Todoist, plus an A letter on Ambrose jobs for photos or the report being up on Ambrose
+// @name         EC Calendar NPT
+// @namespace    ec
+// @version      3.3.1
+// @description  Notes, photos and timesheet badges on the AroFlo calendar for the days in view, kept in step with the daily check issue list in Todoist, plus an A letter on Ambrose jobs for photos or the report being up on Ambrose
 // @match        https://office.aroflo.com/ims/Site/Calendar/*
 // @match        https://tradiesadmin.ambroseconstruct.com.au/*
 // @grant        GM_xmlhttpRequest
@@ -13,29 +13,38 @@
 // @grant        GM_addValueChangeListener
 // @grant        window.close
 // @grant        unsafeWindow
+// @grant        GM_listValues
+// @grant        GM_deleteValue
 // @sandbox      JavaScript
 // @connect      api.todoist.com
 // @run-at       document-idle
-// @updateURL    https://raw.githubusercontent.com/Badseed26/wre-userscripts/main/wre-calendar-npt.user.js
-// @downloadURL  https://raw.githubusercontent.com/Badseed26/wre-userscripts/main/wre-calendar-npt.user.js
+// @updateURL    https://raw.githubusercontent.com/Badseed26/ec-userscripts/main/ec-calendar-npt.user.js
+// @downloadURL  https://raw.githubusercontent.com/Badseed26/ec-userscripts/main/ec-calendar-npt.user.js
 // ==/UserScript==
+
+// ---------- one off (18/11/2026): moves this device's saved data over from the old names. Take this block out once every device has run it ----------
+try {
+  const nn = k => k.replace(/wre/g, 'ec').replace(/Wre/g, 'Ec').replace(/WRE/g, 'EC'), old = /(^|[^A-Za-z])(wre|Wre|WRE)/;
+  if (typeof GM_listValues == 'function') for (const k of GM_listValues()) if (old.test(k)) { const n = nn(k); if (GM_getValue(n, undefined) === undefined) GM_setValue(n, GM_getValue(k)); GM_deleteValue(k); }
+  if (/aroflo|ambrose|outlook|cnw|tradezone/.test(location.hostname)) for (const k of Object.keys(localStorage)) if (old.test(k)) { const n = nn(k); if (localStorage.getItem(n) == null) localStorage.setItem(n, localStorage.getItem(k)); localStorage.removeItem(k); }
+} catch (e) {}
 
 (function () {
   'use strict';
   const W = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window; // AroFlo's own page (jQuery, the calendar)
-  if (W.__wreNPT) return;
-  W.__wreNPT = 1;
+  if (W.__ecNPT) return;
+  W.__ecNPT = 1;
 
   // ---------- settings ----------
   const NO_BADGE = /^(Jack|Lisa|Renee)\b/; // never badged
   const NO_CREDIT = /^Lisa\b/;             // Lisa's bookings are placeholders and her notes don't count
   const TTL = 3 * 60 * 1000;               // recheck anything not done after 3 min
   const MAX_JOBS = 3;                      // jobs read at once (3 small requests each)
-  const KEY = 'wreNPT1';
+  const KEY = 'ecNPT1';
   const PHOTO = /\.(jpe?g|png|heic|heif|gif|webp|bmp|tiff?|mov|mp4|m4v|avi)\b/i;
   const DOC_COLS = 'checkboxdownload,dragrow,thumbnail,document,comment,filter,datetimeinserted,uploadedby,datetimeexpires,imgdatetimetaken,imgGpslocation,category,btnpubliclink,btndelete,actions';
-  const ISSUES = '6hgGFjPF6mWJGvf6';      // Todoist project: WRE daily check (the issue list)
-  const FU = '6hfHcM9Gf74fgcJw';          // Todoist project: WRE follow ups (your own misses go here, due the day they're added)
+  const ISSUES = '6hgGFjPF6mWJGvf6';      // Todoist project: daily check (the issue list)
+  const FU = '6hfHcM9Gf74fgcJw';          // Todoist project: follow ups (your own misses go here, due the day they're added)
   const LIST_DAYS = 14;                    // only visits from the last 14 days go on the issue list
   const LIST_HOUR = 17;                    // today's misses go on the list from 5pm
   const NICK = { Lachlan: 'Lachie' };      // names as the issue list uses them
@@ -68,7 +77,7 @@
 
   // ---------- Tradies Admin (Ambrose): reads each PO's Bookings table for the A letter ----------
   // Any PO page you open gets read and saved. The calendar also opens this site in a background tab
-  // ("#wre-sweep") to check the POs it needs: search the PO, open each one, read its bookings, close.
+  // ("#ec-sweep") to check the POs it needs: search the PO, open each one, read its bookings, close.
   // Saved in this script's own storage (ambData), which the calendar tab picks up straight away.
   if (location.host === 'tradiesadmin.ambroseconstruct.com.au') { ambrosePage(); return; }
 
@@ -76,8 +85,8 @@
     const sleep = ms => new Promise(r => setTimeout(r, ms));
     const MO = { Jan: 1, Feb: 2, Mar: 3, Apr: 4, May: 5, Jun: 6, Jul: 7, Aug: 8, Sep: 9, Oct: 10, Nov: 11, Dec: 12 };
     const day = x => { const m = String(x || '').match(/(\d{1,2}) ([A-Z][a-z]{2}) (\d{2})\b/); return m && MO[m[2]] ? '20' + m[3] + '-' + p2(MO[m[2]]) + '-' + p2(m[1]) : null; };
-    let sweep = /wre-sweep/.test(location.hash);
-    try { if (sweep) sessionStorage.setItem('wreAmbSweep', '1'); else sweep = sessionStorage.getItem('wreAmbSweep') === '1'; } catch (e) {}
+    let sweep = /ec-sweep/.test(location.hash);
+    try { if (sweep) sessionStorage.setItem('ecAmbSweep', '1'); else sweep = sessionStorage.getItem('ecAmbSweep') === '1'; } catch (e) {}
     const isList = () => /^\/PurchaseOrders\/?$/i.test(location.pathname);
     const isPO = () => /^\/PurchaseOrders\/[a-f0-9]{20,}/i.test(location.pathname);
     const loggedIn = () => !!document.body && /LOG OUT/.test(document.body.innerText);
@@ -130,7 +139,7 @@
     }
 
     // ---- the background check ----
-    const finish = () => { try { sessionStorage.removeItem('wreAmbSweep'); } catch (e) {} GM_setValue('ambSweepEnd', Date.now()); setTimeout(() => { try { window.close(); } catch (e) {} }, 300); };
+    const finish = () => { try { sessionStorage.removeItem('ecAmbSweep'); } catch (e) {} GM_setValue('ambSweepEnd', Date.now()); setTimeout(() => { try { window.close(); } catch (e) {} }, 300); };
     const job = () => GM_getValue('ambJob', null);
     const setJob = J => GM_setValue('ambJob', J);
     const rowsNow = () => [...document.querySelectorAll('table tbody tr td:first-child')].map(td => td.textContent.trim()).filter(x => /^\d{8}-\d{2,3}$/.test(x));
@@ -389,23 +398,23 @@
 
   // ---------- badges ----------
   function css() {
-    if (document.getElementById('wre-npt-css')) return;
+    if (document.getElementById('ec-npt-css')) return;
     const s = document.createElement('style');
-    s.id = 'wre-npt-css';
-    s.textContent = '.wre-npt{position:absolute;top:1px;right:1px;z-index:6;display:flex;gap:1px;font:700 9px/11px Arial,sans-serif;cursor:help}' +
-      '.wre-npt i{font-style:normal;width:11px;text-align:center;border-radius:2px;color:#fff;background:#9aa0a6}' +
-      '.wre-npt i.g{background:#1e8e3e}.wre-npt i.r{background:#d93025}.wre-npt i.a{background:#e37400}.wre-npt i.m{background:#1a73e8}.wre-npt i.o{background:#8e24aa}' +
-      '.wre-npt i.r,.wre-npt i.a,.wre-npt i.m{cursor:pointer}.wre-npt i.r:hover,.wre-npt i.a:hover,.wre-npt i.m:hover{outline:1px solid #fff}' +
-      '.wre-npt.pend i{cursor:help!important;outline:0!important}' +
-      '.wre-npt-h{margin-left:10px;font:600 12px Arial,sans-serif;color:#555;cursor:pointer;white-space:nowrap}.wre-npt-h b,.wre-npt-h small.bad{color:#d93025}.wre-npt-h small{font-weight:400;margin-left:6px}.wre-npt-tok{margin-left:8px;font-weight:600;color:#c9501a;text-decoration:underline}';
+    s.id = 'ec-npt-css';
+    s.textContent = '.ec-npt{position:absolute;top:1px;right:1px;z-index:6;display:flex;gap:1px;font:700 9px/11px Arial,sans-serif;cursor:help}' +
+      '.ec-npt i{font-style:normal;width:11px;text-align:center;border-radius:2px;color:#fff;background:#9aa0a6}' +
+      '.ec-npt i.g{background:#1e8e3e}.ec-npt i.r{background:#d93025}.ec-npt i.a{background:#e37400}.ec-npt i.m{background:#1a73e8}.ec-npt i.o{background:#8e24aa}' +
+      '.ec-npt i.r,.ec-npt i.a,.ec-npt i.m{cursor:pointer}.ec-npt i.r:hover,.ec-npt i.a:hover,.ec-npt i.m:hover{outline:1px solid #fff}' +
+      '.ec-npt.pend i{cursor:help!important;outline:0!important}' +
+      '.ec-npt-h{margin-left:10px;font:600 12px Arial,sans-serif;color:#555;cursor:pointer;white-space:nowrap}.ec-npt-h b,.ec-npt-h small.bad{color:#d93025}.ec-npt-h small{font-weight:400;margin-left:6px}.ec-npt-tok{margin-left:8px;font-weight:600;color:#c9501a;text-decoration:underline}';
     document.head.appendChild(s);
   }
   function paint(v) {
     const el = v.el[0];
     if (!el || !el.isConnected) return;
-    let b = el.querySelector(':scope > .wre-npt');
+    let b = el.querySelector(':scope > .ec-npt');
     if (!b) {
-      b = document.createElement('span'); b.className = 'wre-npt'; b.innerHTML = '<i>N</i><i>P</i><i>T</i>'; el.appendChild(b);
+      b = document.createElement('span'); b.className = 'ec-npt'; b.innerHTML = '<i>N</i><i>P</i><i>T</i>'; el.appendChild(b);
       // Clicks on the badge are ours: don't open AroFlo's booking popup or start a drag.
       ['mousedown', 'mouseup', 'dblclick'].forEach(t => b.addEventListener(t, e => e.stopPropagation()));
       b.addEventListener('click', e => { e.stopPropagation(); e.preventDefault(); const i = [...b.children].indexOf(e.target); if (i >= 0 && b.__v) badgeClick(b.__v, 'npta'[i], e.target.className); });
@@ -451,12 +460,12 @@
   function header(jobs, busy) {
     const h = document.querySelector('.fc-header-title');
     if (!h) return;
-    let s = h.querySelector('.wre-npt-h');
+    let s = h.querySelector('.ec-npt-h');
     if (!s) {
-      s = document.createElement('span'); s.className = 'wre-npt-h'; s.title = 'Recheck notes, photos and timesheets for the weeks in view, and Ambrose for the A letters';
+      s = document.createElement('span'); s.className = 'ec-npt-h'; s.title = 'Recheck notes, photos and timesheets for the weeks in view, and Ambrose for the A letters';
       s.addEventListener('click', e => {
         e.stopPropagation();
-        if (e.target.closest('.wre-npt-tok')) setToken(); // the "set Todoist token" link
+        if (e.target.closest('.ec-npt-tok')) setToken(); // the "set Todoist token" link
         else scan(true);                                  // anywhere else: recheck
       });
       (h.querySelector('h2') || h).appendChild(s);
@@ -470,7 +479,7 @@
       (aRed ? ' &middot; A <b>' + aRed + ' to upload</b>' : '') +
       (list && token() ? ' <small class="' + (sy.bad ? 'bad' : '') + '">' + esc(list) + '</small>' : '') +
       (aMsg ? ' <small class="' + (/not updated/.test(aMsg) ? 'bad' : '') + '">' + esc(aMsg) + '</small>' : '') +
-      (tok ? ' <a class="wre-npt-tok" href="#" title="Turn on the issue list">' + (token() ? 'Fix Todoist token' : 'Set Todoist token') + '</a>' : '');
+      (tok ? ' <a class="ec-npt-tok" href="#" title="Turn on the issue list">' + (token() ? 'Fix Todoist token' : 'Set Todoist token') + '</a>' : '');
   }
 
   // ---------- the runner ----------
@@ -546,7 +555,7 @@
     await Promise.all(jobs);
   }
 
-  // ---------- the issue list in Todoist (WRE daily check project) ----------
+  // ---------- the issue list in Todoist (daily check project) ----------
   // Same task shape the daily check uses, so the two never double up:
   //   title:  Lachie, 98 Trudy Cres (14/10): notes, photos, timesheet
   //   desc:   JN 9251 | wrid 795229 | visit 2026-10-14 | Lachlan Buckley | missing: notes, photos, timesheet
@@ -788,12 +797,12 @@
   // cover the visit day, the schedule note (iso, fit off, report...) breaking a tie or covering moved dates.
   // Green: 2 or more photos on that booking in Tradies Admin, or the report done. Orange: waiting on the lads'
   // photos (and notes, for a report), or it's today. Red: theirs are in but Ambrose isn't. No letter: no booking matches.
-  // Red ones from before today go in the "Ambrose uploads" section of WRE daily check (the panel's Ambrose tab).
-  const SEC = '6hp9wgvpfRVf5mm6';          // Todoist section: Ambrose uploads, in WRE daily check
+  // Red ones from before today go in the "Ambrose uploads" section of daily check (the panel's Ambrose tab).
+  const SEC = '6hp9wgvpfRVf5mm6';          // Todoist section: Ambrose uploads, in daily check
   const A_DAYS = 30;                       // visits from the last 30 days get chased
   const A_EVERY = 2 * 36e5;                // a PO is looked at again on Ambrose after 2 hours
   const A_GAP = 30 * 60000;                // the background check runs at most every 30 min (unless you hit recheck)
-  const AMB_URL = 'https://tradiesadmin.ambroseconstruct.com.au/PurchaseOrders#wre-sweep';
+  const AMB_URL = 'https://tradiesadmin.ambroseconstruct.com.au/PurchaseOrders#ec-sweep';
   const ADESC = /^JN (\S*) \| wrid (\d+) \| visit (\d{4}-\d\d-\d\d) \| PO (\S+) \| ([^|\n]+?) \| ambrose: (\w+)$/m;
   const ACACHE = 'ambrose-cache';          // one task in the section holds what Ambrose said, so your phone sees it too
   const AOK = new Set();                   // wrid|date you OK'd (or ticked off)
@@ -981,7 +990,7 @@
   // The background check (PC only): open Tradies Admin in a background tab for the POs that need a look
   let sweepWhy = '';
   function maybeSweep(force) {
-    try { sweepGo(force); } catch (e) { sweepWhy = 'error: ' + (e && e.message || e); console.warn('WRE NPT Ambrose check:', e); }
+    try { sweepGo(force); } catch (e) { sweepWhy = 'error: ' + (e && e.message || e); console.warn('EC NPT Ambrose check:', e); }
   }
   function sweepGo(force) {
     if (PHONE || !cal) { sweepWhy = PHONE ? 'phone' : 'no calendar'; return; }
@@ -1023,7 +1032,7 @@
       last: GM_getValue('ambLast', 0) && hm(GM_getValue('ambLast', 0)), err: E && E.msg, end: GM_getValue('ambSweepEnd', 0) && hm(GM_getValue('ambSweepEnd', 0)),
       pos: Object.fromEntries(Object.entries(D).map(([b, B]) => [b, Object.keys(B.pos || {}).length + ' POs, ' + (B.at ? hm(B.at) : '?')])) };
   };
-  try { W.__wreAmb = () => JSON.stringify(ambStatus()); } catch (e) {}
+  try { W.__ecAmb = () => JSON.stringify(ambStatus()); } catch (e) {}
   GM_registerMenuCommand('Check Ambrose now', () => { GM_setValue('ambJob', null); maybeSweep(true); W.alert('Ambrose check: ' + sweepWhy); });
 
   // ---------- OK'ing a missing item by hand, from the calendar ----------
@@ -1118,7 +1127,7 @@
   const eventFor = el => { for (const o of R.values()) if (o.el && o.el[0] === el) return o.ev; return null; };
   const visitOf = (ev, el) => { // the badged visit for a booking, if it has one
     if (!el) for (const o of R.values()) if (o.ev === ev) { el = o.el && o.el[0]; break; }
-    const bd = el && el.querySelector && el.querySelector(':scope > .wre-npt');
+    const bd = el && el.querySelector && el.querySelector(':scope > .ec-npt');
     return bd && bd.__v && bd.__v.ev._id === ev._id ? bd.__v : null;
   };
   let curBox = null;
@@ -1129,20 +1138,20 @@
   function dayBox(v) {
     curBox = null;
     if (!v) return; // a booking on a later day: no badge, nothing to add
-    if (!document.getElementById('wre-day-css')) {
-      const st = document.createElement('style'); st.id = 'wre-day-css';
-      st.textContent = '.wre-day{display:flex;gap:10px;align-items:flex-start;margin:0 0 8px;padding:8px 10px;background:#f7f4f1;border-left:4px solid #e8731a;border-radius:6px;font:13px/1.4 Arial,sans-serif;color:#222}' +
-        '.wre-day .wre-npt{position:static;font:700 15px/24px Arial,sans-serif;gap:3px;flex:0 0 auto}.wre-day .wre-npt i{width:24px;border-radius:4px}.wre-day .tx{white-space:pre-line}';
+    if (!document.getElementById('ec-day-css')) {
+      const st = document.createElement('style'); st.id = 'ec-day-css';
+      st.textContent = '.ec-day{display:flex;gap:10px;align-items:flex-start;margin:0 0 8px;padding:8px 10px;background:#f7f4f1;border-left:4px solid #e8731a;border-radius:6px;font:13px/1.4 Arial,sans-serif;color:#222}' +
+        '.ec-day .ec-npt{position:static;font:700 15px/24px Arial,sans-serif;gap:3px;flex:0 0 auto}.ec-day .ec-npt i{width:24px;border-radius:4px}.ec-day .tx{white-space:pre-line}';
       document.head.appendChild(st);
     }
-    const box = document.createElement('div'); box.className = 'wre-day';
+    const box = document.createElement('div'); box.className = 'ec-day';
     const draw = () => {
       const t = tipOf(v);
-      box.innerHTML = '<span class="wre-npt' + (v.pending ? ' pend' : '') + '">' + 'NPTA'.slice(0, t.cls.length).split('').map((l, i) => '<i class="' + t.cls[i] + '">' + l + '</i>').join('') + '</span><div class="tx">' + esc(t.text) + '</div>';
+      box.innerHTML = '<span class="ec-npt' + (v.pending ? ' pend' : '') + '">' + 'NPTA'.slice(0, t.cls.length).split('').map((l, i) => '<i class="' + t.cls[i] + '">' + l + '</i>').join('') + '</span><div class="tx">' + esc(t.text) + '</div>';
     };
     draw();
     box.addEventListener('click', e => { // OK / undo straight from the popup, same as the PC badge
-      const i = [...box.querySelectorAll('.wre-npt i')].indexOf(e.target);
+      const i = [...box.querySelectorAll('.ec-npt i')].indexOf(e.target);
       if (i >= 0) badgeClick(v, 'npta'[i], e.target.className).then(draw, draw);
     });
     curBox = box;
@@ -1160,7 +1169,7 @@
     let t0 = null;
     document.addEventListener('touchstart', e => {
       const el = e.target.closest && e.target.closest('.fc-event');
-      t0 = el && e.touches.length === 1 && !e.target.closest('.wre-npt') ? { el, x: e.touches[0].clientX, y: e.touches[0].clientY, at: Date.now() } : null;
+      t0 = el && e.touches.length === 1 && !e.target.closest('.ec-npt') ? { el, x: e.touches[0].clientX, y: e.touches[0].clientY, at: Date.now() } : null;
     }, { capture: true, passive: true });
     document.addEventListener('touchmove', e => {
       if (t0 && Math.hypot(e.touches[0].clientX - t0.x, e.touches[0].clientY - t0.y) > 10) t0 = null; // a scroll, not a tap
@@ -1198,23 +1207,23 @@
     cal = c;
     const o = fc.options;
     // PC: after AroFlo opens a booking's popup, add the N P T box to it (the phone path calls AroFlo directly).
-    if (!(o.eventClick && o.eventClick.__wre)) {
+    if (!(o.eventClick && o.eventClick.__ec)) {
       const prevClick = o.eventClick;
       const click = function (ev) {
         const r = prevClick ? prevClick.apply(this, arguments) : undefined;
         try { if (ev && ev.type === 'task') dayBox(visitOf(ev, this && this.nodeType === 1 ? this : null)); else curBox = null; } catch (e) {}
         return r;
       };
-      click.__wre = 1;
+      click.__ec = 1;
       o.eventClick = click;
     }
-    if (o.eventAfterRender && o.eventAfterRender.__wre) return true;
+    if (o.eventAfterRender && o.eventAfterRender.__ec) return true;
     const prev = o.eventAfterRender;
     const wrap = function (ev, el) {
       if (prev) { try { prev.apply(this, arguments); } catch (e) {} }
       try { onRender(ev, el); } catch (e) {}
     };
-    wrap.__wre = 1;
+    wrap.__ec = 1;
     o.eventAfterRender = wrap;
     R.clear();
     css();

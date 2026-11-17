@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         WRE supplier scout
-// @namespace    wre
-// @version      1.0
+// @name         EC supplier scout
+// @namespace    ec
+// @version      1.1
 // @description  One off helper for building the AroFlo supplier window: records how CNW, Tradezone and the AroFlo quote page load their search results, prices and line items, so Claude can build it without the PC. Copy the report and paste it to Claude. Remove once the supplier window's built.
 // @match        https://shop.cnw.com.au/*
 // @match        https://www.cnw.com.au/*
@@ -11,71 +11,80 @@
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        unsafeWindow
+// @grant        GM_listValues
+// @grant        GM_deleteValue
 // @grant        GM_xmlhttpRequest
 // @connect      api.github.com
 // @connect      raw.githubusercontent.com
 // @run-at       document-start
-// @updateURL    https://raw.githubusercontent.com/Badseed26/wre-userscripts/main/wre-supplier-scout.user.js
-// @downloadURL  https://raw.githubusercontent.com/Badseed26/wre-userscripts/main/wre-supplier-scout.user.js
+// @updateURL    https://raw.githubusercontent.com/Badseed26/ec-userscripts/main/ec-supplier-scout.user.js
+// @downloadURL  https://raw.githubusercontent.com/Badseed26/ec-userscripts/main/ec-supplier-scout.user.js
 // ==/UserScript==
 
-// Built from src/wre-supplier-scout.js by build.py. Change src/wre-supplier-scout.js, not this file.
+// Built from src/ec-supplier-scout.js by build.py. Change src/ec-supplier-scout.js, not this file.
 (function () {
   // Live updates (23/10): Tampermonkey only checks for a new version every few hours. This checks the repo's latest commit every
   // 2 min (free when nothing's changed) and keeps the newest code here, so a push runs on the next page load. If the new code needs
   // a permission this install hasn't got, or this browser won't run it, the built in copy below runs like before.
-  const __wreName = "wre-supplier-scout", __wreVer = "1.0", __wreHave = new Set(["// @connect api.github.com", "// @connect raw.githubusercontent.com", "// @grant GM_getValue", "// @grant GM_setValue", "// @grant GM_xmlhttpRequest", "// @grant unsafeWindow", "// @match https://*.tradezone.com.au/*", "// @match https://office.aroflo.com/*", "// @match https://shop.cnw.com.au/*", "// @match https://tradezone.com.au/*", "// @match https://www.cnw.com.au/*", "// @run-at document-start"]);
-  const __wreInfo0 = typeof GM_info != 'undefined' ? GM_info : null;
-  const __wreSay = m => { try { console.log('[WRE live update] ' + __wreName + ': ' + m); } catch (e) {} };
-  const __wreCmp = (a, b) => { const x = String(a).split('.').map(Number), y = String(b).split('.').map(Number); for (let i = 0; i < Math.max(x.length, y.length); i++) { const d = (x[i] || 0) - (y[i] || 0); if (d) return d; } return 0; };
-  const __wreMeta = c => { const h = (String(c).match(/==UserScript==([\s\S]*?)==\/UserScript==/) || [])[1] || ''; return { v: (h.match(/^\/\/ @version\s+(\S+)/m) || [])[1] || '', need: (h.match(/^\/\/ @(grant|connect|match|exclude|include|run-at|sandbox)\s+.+$/gm) || []).map(s => s.replace(/\s+/g, ' ').trim()) }; };
-  const __wreMissing = need => need.filter(x => !__wreHave.has(x) && !(/^\/\/ @connect /.test(x) && __wreHave.has('// @connect *')));
+  const __ecName = "ec-supplier-scout", __ecVer = "1.1", __ecHave = new Set(["// @connect api.github.com", "// @connect raw.githubusercontent.com", "// @grant GM_deleteValue", "// @grant GM_getValue", "// @grant GM_listValues", "// @grant GM_setValue", "// @grant GM_xmlhttpRequest", "// @grant unsafeWindow", "// @match https://*.tradezone.com.au/*", "// @match https://office.aroflo.com/*", "// @match https://shop.cnw.com.au/*", "// @match https://tradezone.com.au/*", "// @match https://www.cnw.com.au/*", "// @run-at document-start"]);
+  const __ecInfo0 = typeof GM_info != 'undefined' ? GM_info : null;
+  const __ecSay = m => { try { console.log('[live update] ' + __ecName + ': ' + m); } catch (e) {} };
+  const __ecCmp = (a, b) => { const x = String(a).split('.').map(Number), y = String(b).split('.').map(Number); for (let i = 0; i < Math.max(x.length, y.length); i++) { const d = (x[i] || 0) - (y[i] || 0); if (d) return d; } return 0; };
+  const __ecMeta = c => { const h = (String(c).match(/==UserScript==([\s\S]*?)==\/UserScript==/) || [])[1] || ''; return { v: (h.match(/^\/\/ @version\s+(\S+)/m) || [])[1] || '', need: (h.match(/^\/\/ @(grant|connect|match|exclude|include|run-at|sandbox)\s+.+$/gm) || []).map(s => s.replace(/\s+/g, ' ').trim()) }; };
+  const __ecMissing = need => need.filter(x => !__ecHave.has(x) && !(/^\/\/ @connect /.test(x) && __ecHave.has('// @connect *')));
   // the newer code, run with GM_info saying its own version
-  function __wreRun(__wreCode, __wreV) { const GM_info = __wreInfo0 ? Object.assign({}, __wreInfo0, { script: Object.assign({}, __wreInfo0.script, { version: __wreV }) }) : undefined; eval(__wreCode); }
-  function __wreLive() {
-    let c = null; try { c = GM_getValue('wreLiveCode', null); } catch (e) { return false; }
-    if (!c || !c.code || __wreCmp(c.v, __wreVer) <= 0) return false;
-    const miss = __wreMissing(__wreMeta(c.code).need); if (miss.length) { __wreSay(c.v + ' needs ' + miss.join(', ') + ', running the built in ' + __wreVer + ' till Tampermonkey updates'); return false; }
-    try { eval('0'); } catch (e) { __wreSay('this browser won\'t run live code (' + e.message + '), running the built in ' + __wreVer); return false; }
-    try { __wreRun(c.code, c.v); } catch (e) { if (e instanceof SyntaxError) { __wreSay(c.v + ' won\'t parse, running the built in ' + __wreVer); return false; } __wreSay(c.v + ' threw: ' + e.message); }
-    __wreSay('running ' + c.v + ' (built in is ' + __wreVer + ')'); return true;
+  function __ecRun(__ecCode, __ecV) { const GM_info = __ecInfo0 ? Object.assign({}, __ecInfo0, { script: Object.assign({}, __ecInfo0.script, { version: __ecV }) }) : undefined; eval(__ecCode); }
+  function __ecLive() {
+    let c = null; try { c = GM_getValue('ecLiveCode', null); } catch (e) { return false; }
+    if (!c || !c.code || __ecCmp(c.v, __ecVer) <= 0) return false;
+    const miss = __ecMissing(__ecMeta(c.code).need); if (miss.length) { __ecSay(c.v + ' needs ' + miss.join(', ') + ', running the built in ' + __ecVer + ' till Tampermonkey updates'); return false; }
+    try { eval('0'); } catch (e) { __ecSay('this browser won\'t run live code (' + e.message + '), running the built in ' + __ecVer); return false; }
+    try { __ecRun(c.code, c.v); } catch (e) { if (e instanceof SyntaxError) { __ecSay(c.v + ' won\'t parse, running the built in ' + __ecVer); return false; } __ecSay(c.v + ' threw: ' + e.message); }
+    __ecSay('running ' + c.v + ' (built in is ' + __ecVer + ')'); return true;
   }
   // keep newer code once it's been fetched (sha = the commit, or raw:<version> when it came the fallback way)
-  function __wreTake(code, sha, tag) {
+  function __ecTake(code, sha, tag) {
     if (!/==\/UserScript==/.test(code)) return;
-    const m = __wreMeta(code); if (!m.v) return;
-    if (__wreCmp(m.v, __wreVer) > 0) {
+    const m = __ecMeta(code); if (!m.v) return;
+    if (__ecCmp(m.v, __ecVer) > 0) {
       let ok = true; try { new Function(code); } catch (e) { ok = !(e instanceof SyntaxError); }
-      if (!ok) { __wreSay(m.v + ' won\'t parse, not keeping it'); GM_setValue('wreLiveSha', sha); return; }
-      const old = GM_getValue('wreLiveCode', null); if (!old || old.v != m.v) __wreSay('got ' + m.v + ', it runs on the next page load');
-      GM_setValue('wreLiveCode', { v: m.v, code, sha, at: Date.now() });
-    } else GM_setValue('wreLiveCode', null); // Tampermonkey's copy has caught up
-    GM_setValue('wreLiveSha', sha); if (tag) GM_setValue('wreLiveEtag', tag);
+      if (!ok) { __ecSay(m.v + ' won\'t parse, not keeping it'); GM_setValue('ecLiveSha', sha); return; }
+      const old = GM_getValue('ecLiveCode', null); if (!old || old.v != m.v) __ecSay('got ' + m.v + ', it runs on the next page load');
+      GM_setValue('ecLiveCode', { v: m.v, code, sha, at: Date.now() });
+    } else GM_setValue('ecLiveCode', null); // Tampermonkey's copy has caught up
+    GM_setValue('ecLiveSha', sha); if (tag) GM_setValue('ecLiveEtag', tag);
   }
   // GitHub's commit check is limited per internet address, and on 4G/5G that address is shared with lots of other
   // phones, so it can get turned away. Then the newest file is fetched straight off main instead (5/11).
-  function __wreRaw() {
-    GM_xmlhttpRequest({ method: 'GET', url: 'https://raw.githubusercontent.com/Badseed26/wre-userscripts/main/src/' + __wreName + '.js?t=' + Date.now(), timeout: 30000, headers: { 'Cache-Control': 'no-cache' }, onload: q => {
-      try { if (q.status != 200) return; const v = __wreMeta(q.responseText || '').v; if (v) __wreTake(q.responseText, 'raw:' + v); } catch (e) {} } });
+  function __ecRaw() {
+    GM_xmlhttpRequest({ method: 'GET', url: 'https://raw.githubusercontent.com/Badseed26/ec-userscripts/main/src/' + __ecName + '.js?t=' + Date.now(), timeout: 30000, headers: { 'Cache-Control': 'no-cache' }, onload: q => {
+      try { if (q.status != 200) return; const v = __ecMeta(q.responseText || '').v; if (v) __ecTake(q.responseText, 'raw:' + v); } catch (e) {} } });
   }
-  function __wreCheck() {
+  function __ecCheck() {
     try {
-      if (Date.now() - GM_getValue('wreLiveAt', 0) < 2 * 60e3) return; GM_setValue('wreLiveAt', Date.now());
-      const et = GM_getValue('wreLiveEtag', ''), hd = { Accept: 'application/vnd.github+json' }; if (et) hd['If-None-Match'] = et;
-      GM_xmlhttpRequest({ method: 'GET', url: 'https://api.github.com/repos/Badseed26/wre-userscripts/commits/main', headers: hd, timeout: 20000, onerror: __wreRaw, ontimeout: __wreRaw, onload: r => {
+      if (Date.now() - GM_getValue('ecLiveAt', 0) < 2 * 60e3) return; GM_setValue('ecLiveAt', Date.now());
+      const et = GM_getValue('ecLiveEtag', ''), hd = { Accept: 'application/vnd.github+json' }; if (et) hd['If-None-Match'] = et;
+      GM_xmlhttpRequest({ method: 'GET', url: 'https://api.github.com/repos/Badseed26/ec-userscripts/commits/main', headers: hd, timeout: 20000, onerror: __ecRaw, ontimeout: __ecRaw, onload: r => {
         try {
           if (r.status == 304) return; // nothing new, and it doesn't count against GitHub's limit
-          if (r.status != 200) { __wreSay('GitHub said ' + r.status + ', checking the file directly'); return __wreRaw(); }
+          if (r.status != 200) { __ecSay('GitHub said ' + r.status + ', checking the file directly'); return __ecRaw(); }
           const sha = (JSON.parse(r.responseText) || {}).sha, tag = (((r.responseHeaders || '').match(/^etag:\s*(.+)$/mi) || [])[1] || '').trim();
-          if (!sha) return; if (sha == GM_getValue('wreLiveSha', '')) { if (tag) GM_setValue('wreLiveEtag', tag); return; }
-          GM_xmlhttpRequest({ method: 'GET', url: 'https://raw.githubusercontent.com/Badseed26/wre-userscripts/' + sha + '/src/' + __wreName + '.js', timeout: 30000, onload: q => {
-            try { if (q.status == 200) __wreTake(q.responseText || '', sha, tag); } catch (e) {} } });
+          if (!sha) return; if (sha == GM_getValue('ecLiveSha', '')) { if (tag) GM_setValue('ecLiveEtag', tag); return; }
+          GM_xmlhttpRequest({ method: 'GET', url: 'https://raw.githubusercontent.com/Badseed26/ec-userscripts/' + sha + '/src/' + __ecName + '.js', timeout: 30000, onload: q => {
+            try { if (q.status == 200) __ecTake(q.responseText || '', sha, tag); } catch (e) {} } });
         } catch (e) {} } });
     } catch (e) {}
   }
-  if (window.top === window.self) { __wreCheck(); setInterval(__wreCheck, 2 * 60e3 + 5000); }
-  if (__wreLive()) return;
-  // ---------- the built in copy (src/wre-supplier-scout.js at 1.0) ----------
+  if (window.top === window.self) { __ecCheck(); setInterval(__ecCheck, 2 * 60e3 + 5000); }
+  if (__ecLive()) return;
+  // ---------- the built in copy (src/ec-supplier-scout.js at 1.1) ----------
+
+// ---------- one off (18/11/2026): moves this device's saved data over from the old names. Take this block out once every device has run it ----------
+try {
+  const nn = k => k.replace(/wre/g, 'ec').replace(/Wre/g, 'Ec').replace(/WRE/g, 'EC'), old = /(^|[^A-Za-z])(wre|Wre|WRE)/;
+  if (typeof GM_listValues == 'function') for (const k of GM_listValues()) if (old.test(k)) { const n = nn(k); if (GM_getValue(n, undefined) === undefined) GM_setValue(n, GM_getValue(k)); GM_deleteValue(k); }
+  if (/aroflo|ambrose|outlook|cnw|tradezone/.test(location.hostname)) for (const k of Object.keys(localStorage)) if (old.test(k)) { const n = nn(k); if (localStorage.getItem(n) == null) localStorage.setItem(n, localStorage.getItem(k)); localStorage.removeItem(k); }
+} catch (e) {}
 
 (function () {
   'use strict';
@@ -239,7 +248,7 @@
     s.req.forEach(r => { out += `\n--- REQ ${r.m} ${r.p} -> ${r.s} ${r.ct} (on ${r.page})${r.body ? '\nSENT: ' + r.body : ''}\nGOT: ${r.got}\n`; });
     return out.length > CAP ? out.slice(0, CAP) + '\n[cut at ' + CAP + ']' : out;
   }
-  const report = all => 'WRE supplier scout 1.0, ' + new Date().toString().slice(0, 21) + ', ' + (/iPhone|iPad/.test(navigator.userAgent) ? 'iPhone' : 'PC') + '\n' + (all ? ['CNW', 'Tradezone', 'AroFlo'] : [SITE]).map(siteReport).join('');
+  const report = all => 'EC supplier scout 1.0, ' + new Date().toString().slice(0, 21) + ', ' + (/iPhone|iPad/.test(navigator.userAgent) ? 'iPhone' : 'PC') + '\n' + (all ? ['CNW', 'Tradezone', 'AroFlo'] : [SITE]).map(siteReport).join('');
 
   function copy(text, btn) {
     const done = ok => { btn.textContent = ok ? 'Copied ' + Math.round(text.length / 1000) + 'k, paste it to Claude' : 'Copy failed, try again'; setTimeout(() => paint(), 4000); };
@@ -262,8 +271,8 @@
     box.querySelector('.st').textContent = SITE + ': ' + store.req.length + ' requests, ' + store.pages.length + ' pages grabbed. ' + others;
   }
   function ui() {
-    if (document.getElementById('wre-scout')) return;
-    const wrap = document.createElement('div'); wrap.id = 'wre-scout';
+    if (document.getElementById('ec-scout')) return;
+    const wrap = document.createElement('div'); wrap.id = 'ec-scout';
     wrap.style.cssText = 'position:fixed;left:8px;bottom:8px;z-index:2147483647;font:14px -apple-system,Segoe UI,sans-serif;color:#222';
     btn = document.createElement('button');
     btn.style.cssText = 'background:#e8731a;color:#fff;border:0;border-radius:18px;padding:8px 12px;font:600 13px inherit;box-shadow:0 2px 6px #0004';

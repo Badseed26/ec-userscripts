@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         WRE job packs
-// @namespace    wre
-// @version      0.4.14
+// @name         EC job packs
+// @namespace    ec
+// @version      0.4.15
 // @description  Job pack PDFs for Ambrose jobs. A Job packs button on the AroFlo calendar (above Solar orders) lists the Ambrose jobs booked in the next X days with tick boxes, and a Job pack button sits on each Ambrose task. Run reads the task, pulls the Ambrose site photos and mud map, gets an aerial of the address (Queensland Government photos, or Google with a key), has Haiku pick the photos for the PO rooms, write the job scope and flag anything odd, builds the pack in FieldViser through its API, then puts a share link on top of the task description and the PDF in the task's documents.
 // @match        https://office.aroflo.com/ims/Site/Calendar/*
 // @match        https://office.aroflo.com/ims/Site/Service/workrequest/*
@@ -12,6 +12,8 @@
 // @grant        GM_addValueChangeListener
 // @grant        unsafeWindow
 // @grant        window.close
+// @grant        GM_listValues
+// @grant        GM_deleteValue
 // @connect      production-reportapi.ambrosebuilding.com.au
 // @connect      ambrose-production.s3-ap-southeast-2.amazonaws.com
 // @connect      amazonaws.com
@@ -25,9 +27,16 @@
 // @connect      fieldviser.com
 // @connect      api.todoist.com
 // @run-at       document-idle
-// @updateURL    https://raw.githubusercontent.com/Badseed26/wre-userscripts/main/wre-job-packs.user.js
-// @downloadURL  https://raw.githubusercontent.com/Badseed26/wre-userscripts/main/wre-job-packs.user.js
+// @updateURL    https://raw.githubusercontent.com/Badseed26/ec-userscripts/main/ec-job-packs.user.js
+// @downloadURL  https://raw.githubusercontent.com/Badseed26/ec-userscripts/main/ec-job-packs.user.js
 // ==/UserScript==
+
+// ---------- one off (18/11/2026): moves this device's saved data over from the old names. Take this block out once every device has run it ----------
+try {
+  const nn = k => k.replace(/wre/g, 'ec').replace(/Wre/g, 'Ec').replace(/WRE/g, 'EC'), old = /(^|[^A-Za-z])(wre|Wre|WRE)/;
+  if (typeof GM_listValues == 'function') for (const k of GM_listValues()) if (old.test(k)) { const n = nn(k); if (GM_getValue(n, undefined) === undefined) GM_setValue(n, GM_getValue(k)); GM_deleteValue(k); }
+  if (/aroflo|ambrose|outlook|cnw|tradezone/.test(location.hostname)) for (const k of Object.keys(localStorage)) if (old.test(k)) { const n = nn(k); if (localStorage.getItem(n) == null) localStorage.setItem(n, localStorage.getItem(k)); localStorage.removeItem(k); }
+} catch (e) {}
 
 (function () {
   'use strict';
@@ -52,18 +61,18 @@
   //   background tab that closes itself. Never touches status, bookings, notes or anything else.
 
   const W = typeof unsafeWindow != 'undefined' ? unsafeWindow : window;
-  if (W.__wreJobPacks || window.top !== window.self) return;
-  W.__wreJobPacks = 1;
+  if (W.__ecJobPacks || window.top !== window.self) return;
+  W.__ecJobPacks = 1;
 
   const ORANGE = '#e8731a', GREY = '#4a4541';
   const AMB = 'https://production-reportapi.ambrosebuilding.com.au/ReportData/ImagesReport?jobRecID=';
   const CF = 'https://ddxqoilvgipf7.cloudfront.net/800x800/media/';
   const TDA = 'https://api.todoist.com/api/v1/';
-  const FU = '6hfHcM9Gf74fgcJw';          // Todoist: WRE follow ups
+  const FU = '6hfHcM9Gf74fgcJw';          // Todoist: follow ups
   const MODELS = { haiku: 'claude-haiku-5-5', sonnet: 'claude-sonnet-5-5' };
   const AIPRICE = { 'claude-haiku-5-5': [0.1, 0.5], 'claude-sonnet-5-5': [2, 10] };   // USD per MTok, in and out
   const DEF = { days: 14, model: 'haiku', fvBase: 'https://testing.fieldviser.com' };
-  const HASH = '#wre-jobpack';
+  const HASH = '#ec-jobpack';
 
   const sleep = ms => new Promise(r => setTimeout(r, ms));
   const now = () => Date.now();
@@ -237,7 +246,7 @@
   const capOf = p => /for company/i.test(p.cap) ? (/front elevation/i.test(p.room + p.cap) ? 'Front of house' : p.room) : (p.cap || p.room);
 
   // ---------- AI ----------
-  const PICK_SYS = `You set up a job pack PDF for the electricians at Wired Rite Electrical (Queensland) on an insurance repair job from the builder Ambrose. You get the AroFlo task description (the builder's PO lines, contacts removed) and the site photos the builder's estimator took, numbered, each with the room it was filed under and the estimator's caption, as small thumbnails.
+  const PICK_SYS = `You set up a job pack PDF for the electricians at an electrical contractor in Queensland on an insurance repair job from the builder Ambrose. You get the AroFlo task description (the builder's PO lines, contacts removed) and the site photos the builder's estimator took, numbered, each with the room it was filed under and the estimator's caption, as small thumbnails.
 
 1. Pick the photos.
 Keep:
@@ -458,7 +467,7 @@ Answer with JSON only: {"pin_on_house":true,"house_in_frame":"whole","note":""} 
   };
   const hasDoc = (list, name) => !!list && list.toLowerCase().includes(name.toLowerCase().replace(/\.pdf$/, ''));
 
-  // the description line is JOB PACK in bold at 16px in WRE orange, the words themselves the link (Ethan, 16/11). Older lines (JOB PACK: <address>) come off.
+  // the description line is JOB PACK in bold at 16px in brand orange, the words themselves the link (Ethan, 16/11). Older lines (JOB PACK: <address>) come off.
   const packUrl = push => String(push.line || '').replace(/^JOB PACK:?\s*/, '');
   const linkOnTop = (h, url) => { const d = html(h); const f = [...d.body.children].find(e => clean(e.textContent)); const a = f && f.querySelector('a');
     return !!(f && a && clean(f.textContent) == 'JOB PACK' && a.getAttribute('href') == url && f.querySelector('strong,b') && /font-size:\s*16px/i.test(f.innerHTML) && /color:\s*#e8731a/i.test(f.innerHTML)); };

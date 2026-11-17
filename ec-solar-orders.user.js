@@ -1,20 +1,89 @@
 // ==UserScript==
-// @name         WRE solar orders
-// @namespace    wre
-// @version      0.7
+// @name         EC solar orders
+// @namespace    ec
+// @version      0.8
 // @description  Solar orders button on the AroFlo calendar: lists the solar replacement jobs booked in the next X days with the lads' notes, the PO, photos and your notes, works out the panels and inverter from the label photos and notes (Haiku sorts the photos, Opus reads them), adds rails and TIN kits by rule, matches it all on Tradezone with Gold Coast stock, runs a checklist, keeps approved orders in Todoist and loads one job at a time into the Tradezone cart with the PO ref. Never orders, you do that.
 // @match        https://office.aroflo.com/ims/Site/Calendar/*
 // @grant        GM_xmlhttpRequest
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        unsafeWindow
+// @grant        GM_listValues
+// @grant        GM_deleteValue
 // @connect      www.tradezone.com.au
 // @connect      api.anthropic.com
 // @connect      api.todoist.com
+// @connect      api.github.com
+// @connect      raw.githubusercontent.com
 // @run-at       document-idle
-// @updateURL    https://raw.githubusercontent.com/Badseed26/wre-userscripts/main/wre-solar-orders.user.js
-// @downloadURL  https://raw.githubusercontent.com/Badseed26/wre-userscripts/main/wre-solar-orders.user.js
+// @updateURL    https://raw.githubusercontent.com/Badseed26/ec-userscripts/main/ec-solar-orders.user.js
+// @downloadURL  https://raw.githubusercontent.com/Badseed26/ec-userscripts/main/ec-solar-orders.user.js
 // ==/UserScript==
+
+// Built from src/ec-solar-orders.js by build.py. Change src/ec-solar-orders.js, not this file.
+(function () {
+  // Live updates (23/10): Tampermonkey only checks for a new version every few hours. This checks the repo's latest commit every
+  // 2 min (free when nothing's changed) and keeps the newest code here, so a push runs on the next page load. If the new code needs
+  // a permission this install hasn't got, or this browser won't run it, the built in copy below runs like before.
+  const __ecName = "ec-solar-orders", __ecVer = "0.8", __ecHave = new Set(["// @connect api.anthropic.com", "// @connect api.github.com", "// @connect api.todoist.com", "// @connect raw.githubusercontent.com", "// @connect www.tradezone.com.au", "// @grant GM_deleteValue", "// @grant GM_getValue", "// @grant GM_listValues", "// @grant GM_setValue", "// @grant GM_xmlhttpRequest", "// @grant unsafeWindow", "// @match https://office.aroflo.com/ims/Site/Calendar/*", "// @run-at document-idle"]);
+  const __ecInfo0 = typeof GM_info != 'undefined' ? GM_info : null;
+  const __ecSay = m => { try { console.log('[live update] ' + __ecName + ': ' + m); } catch (e) {} };
+  const __ecCmp = (a, b) => { const x = String(a).split('.').map(Number), y = String(b).split('.').map(Number); for (let i = 0; i < Math.max(x.length, y.length); i++) { const d = (x[i] || 0) - (y[i] || 0); if (d) return d; } return 0; };
+  const __ecMeta = c => { const h = (String(c).match(/==UserScript==([\s\S]*?)==\/UserScript==/) || [])[1] || ''; return { v: (h.match(/^\/\/ @version\s+(\S+)/m) || [])[1] || '', need: (h.match(/^\/\/ @(grant|connect|match|exclude|include|run-at|sandbox)\s+.+$/gm) || []).map(s => s.replace(/\s+/g, ' ').trim()) }; };
+  const __ecMissing = need => need.filter(x => !__ecHave.has(x) && !(/^\/\/ @connect /.test(x) && __ecHave.has('// @connect *')));
+  // the newer code, run with GM_info saying its own version
+  function __ecRun(__ecCode, __ecV) { const GM_info = __ecInfo0 ? Object.assign({}, __ecInfo0, { script: Object.assign({}, __ecInfo0.script, { version: __ecV }) }) : undefined; eval(__ecCode); }
+  function __ecLive() {
+    let c = null; try { c = GM_getValue('ecLiveCode', null); } catch (e) { return false; }
+    if (!c || !c.code || __ecCmp(c.v, __ecVer) <= 0) return false;
+    const miss = __ecMissing(__ecMeta(c.code).need); if (miss.length) { __ecSay(c.v + ' needs ' + miss.join(', ') + ', running the built in ' + __ecVer + ' till Tampermonkey updates'); return false; }
+    try { eval('0'); } catch (e) { __ecSay('this browser won\'t run live code (' + e.message + '), running the built in ' + __ecVer); return false; }
+    try { __ecRun(c.code, c.v); } catch (e) { if (e instanceof SyntaxError) { __ecSay(c.v + ' won\'t parse, running the built in ' + __ecVer); return false; } __ecSay(c.v + ' threw: ' + e.message); }
+    __ecSay('running ' + c.v + ' (built in is ' + __ecVer + ')'); return true;
+  }
+  // keep newer code once it's been fetched (sha = the commit, or raw:<version> when it came the fallback way)
+  function __ecTake(code, sha, tag) {
+    if (!/==\/UserScript==/.test(code)) return;
+    const m = __ecMeta(code); if (!m.v) return;
+    if (__ecCmp(m.v, __ecVer) > 0) {
+      let ok = true; try { new Function(code); } catch (e) { ok = !(e instanceof SyntaxError); }
+      if (!ok) { __ecSay(m.v + ' won\'t parse, not keeping it'); GM_setValue('ecLiveSha', sha); return; }
+      const old = GM_getValue('ecLiveCode', null); if (!old || old.v != m.v) __ecSay('got ' + m.v + ', it runs on the next page load');
+      GM_setValue('ecLiveCode', { v: m.v, code, sha, at: Date.now() });
+    } else GM_setValue('ecLiveCode', null); // Tampermonkey's copy has caught up
+    GM_setValue('ecLiveSha', sha); if (tag) GM_setValue('ecLiveEtag', tag);
+  }
+  // GitHub's commit check is limited per internet address, and on 4G/5G that address is shared with lots of other
+  // phones, so it can get turned away. Then the newest file is fetched straight off main instead (5/11).
+  function __ecRaw() {
+    GM_xmlhttpRequest({ method: 'GET', url: 'https://raw.githubusercontent.com/Badseed26/ec-userscripts/main/src/' + __ecName + '.js?t=' + Date.now(), timeout: 30000, headers: { 'Cache-Control': 'no-cache' }, onload: q => {
+      try { if (q.status != 200) return; const v = __ecMeta(q.responseText || '').v; if (v) __ecTake(q.responseText, 'raw:' + v); } catch (e) {} } });
+  }
+  function __ecCheck() {
+    try {
+      if (Date.now() - GM_getValue('ecLiveAt', 0) < 2 * 60e3) return; GM_setValue('ecLiveAt', Date.now());
+      const et = GM_getValue('ecLiveEtag', ''), hd = { Accept: 'application/vnd.github+json' }; if (et) hd['If-None-Match'] = et;
+      GM_xmlhttpRequest({ method: 'GET', url: 'https://api.github.com/repos/Badseed26/ec-userscripts/commits/main', headers: hd, timeout: 20000, onerror: __ecRaw, ontimeout: __ecRaw, onload: r => {
+        try {
+          if (r.status == 304) return; // nothing new, and it doesn't count against GitHub's limit
+          if (r.status != 200) { __ecSay('GitHub said ' + r.status + ', checking the file directly'); return __ecRaw(); }
+          const sha = (JSON.parse(r.responseText) || {}).sha, tag = (((r.responseHeaders || '').match(/^etag:\s*(.+)$/mi) || [])[1] || '').trim();
+          if (!sha) return; if (sha == GM_getValue('ecLiveSha', '')) { if (tag) GM_setValue('ecLiveEtag', tag); return; }
+          GM_xmlhttpRequest({ method: 'GET', url: 'https://raw.githubusercontent.com/Badseed26/ec-userscripts/' + sha + '/src/' + __ecName + '.js', timeout: 30000, onload: q => {
+            try { if (q.status == 200) __ecTake(q.responseText || '', sha, tag); } catch (e) {} } });
+        } catch (e) {} } });
+    } catch (e) {}
+  }
+  if (window.top === window.self) { __ecCheck(); setInterval(__ecCheck, 2 * 60e3 + 5000); }
+  if (__ecLive()) return;
+  // ---------- the built in copy (src/ec-solar-orders.js at 0.8) ----------
+
+// ---------- one off (18/11/2026): moves this device's saved data over from the old names. Take this block out once every device has run it ----------
+try {
+  const nn = k => k.replace(/wre/g, 'ec').replace(/Wre/g, 'Ec').replace(/WRE/g, 'EC'), old = /(^|[^A-Za-z])(wre|Wre|WRE)/;
+  if (typeof GM_listValues == 'function') for (const k of GM_listValues()) if (old.test(k)) { const n = nn(k); if (GM_getValue(n, undefined) === undefined) GM_setValue(n, GM_getValue(k)); GM_deleteValue(k); }
+  if (/aroflo|ambrose|outlook|cnw|tradezone/.test(location.hostname)) for (const k of Object.keys(localStorage)) if (old.test(k)) { const n = nn(k); if (localStorage.getItem(n) == null) localStorage.setItem(n, localStorage.getItem(k)); localStorage.removeItem(k); }
+} catch (e) {}
 
 (function () {
   'use strict';
@@ -28,15 +97,15 @@
   // Tradezone: search pages for the products (signed in prices), the product page for Gold Coast stock, and the cart's own
   //   calls: /checkout/cart/add/product/<id>/?options=cart&qty=N&location=DC1 and /checkout/cart/updateCustomerOrderReference.
   //   It only loads into an empty cart and never checks out.
-  // Todoist: approved orders sit in WRE job tracker > Solar orders so the PC and phone see the same list.
+  // Todoist: approved orders sit in job tracker > Solar orders so the PC and phone see the same list.
 
   const W = typeof unsafeWindow != 'undefined' ? unsafeWindow : window;
-  if (W.__wreSolar || window.top !== window.self) return;
-  W.__wreSolar = 1;
+  if (W.__ecSolar || window.top !== window.self) return;
+  W.__ecSolar = 1;
 
   const ORANGE = '#e8731a', GREY = '#4a4541';
   const TZ = 'https://www.tradezone.com.au';
-  const TRACK = '6hfHgcxH8W9q4qf5';          // Todoist: WRE job tracker
+  const TRACK = '6hfHgcxH8W9q4qf5';          // Todoist: job tracker
   const SEC_NAME = 'Solar orders';
   const TDA = 'https://api.todoist.com/api/v1/';
   const AI = { sort: 'claude-haiku-5-5', read: 'claude-opus-5-5' };
@@ -220,7 +289,7 @@
 Skip everything else (roofs, switchboards, people, general shots). If unsure, skip it.
 Answer with JSON only: {"tags":{"3":"inverter","7":"panel"}}`;
 
-  const READ_SYS = `You work out the solar gear to order for an insurance solar replacement (Wired Rite Electrical, Queensland). New gear comes from Tradezone.
+  const READ_SYS = `You work out the solar gear to order for an insurance solar replacement (an electrical contractor in Queensland). New gear comes from Tradezone.
 What's on site beats the PO: builder POs very rarely state the right kW or inverter. Go by, in this order: Ethan's notes, the label photos (read make, model, kW, watts and phase off the stickers), the lads' notes (e.g. "removed 32x rec 400w panels"), then the task description and the PO.
 Panels: size the new panels to the existing array's kW (count x watts). Current panels are around 440 to 475W. Use whole panels, not under the existing kW by more than half a panel. Name a make only if Ethan's notes, the lads or the PO name one for the new panels, otherwise go like for like quality.
 Inverter: like for like make and kW where it's still sold, else the closest current model (Sungrow is the usual). Match single or three phase to the existing inverter.
@@ -915,7 +984,8 @@ Tradezone branch <select class="in" data-set="branch">${Object.keys(TZLOC).map(b
   }
 
   // test hook for Claude: read only bits, nothing here runs by itself
-  W.wreSolar = { scan, jobs: () => JOBS, st, workOut, fromApproved, loadApproved, approved: () => approved, details, notes, docs, others, searchTz, tzStock, byCode, cartRead, checks, blockers, labelPhotos, toggle };
+  W.ecSolar = { scan, jobs: () => JOBS, st, workOut, fromApproved, loadApproved, approved: () => approved, details, notes, docs, others, searchTz, tzStock, byCode, cartRead, checks, blockers, labelPhotos, toggle };
 
   if (document.readyState == 'complete') mount(); else addEventListener('load', mount);
+})();
 })();

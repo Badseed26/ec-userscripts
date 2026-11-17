@@ -1,17 +1,19 @@
 // ==UserScript==
 // @name         AroFlo to Ambrose photo drag
-// @namespace    wre
-// @version      1.5
+// @namespace    ec
+// @version      1.6
 // @description  Drag photos straight from AroFlo into upload boxes (Ambrose, Tradies Web etc), no downloading
 // @match        *://*/*
 // @exclude      *://*.aroflo.com/*
 // @grant        GM_xmlhttpRequest
 // @grant        GM_getValue
 // @grant        GM_setValue
+// @grant        GM_listValues
+// @grant        GM_deleteValue
 // @connect      *
 // @run-at       document-start
-// @updateURL    https://raw.githubusercontent.com/Badseed26/wre-userscripts/main/aroflo-photo-drag.user.js
-// @downloadURL  https://raw.githubusercontent.com/Badseed26/wre-userscripts/main/aroflo-photo-drag.user.js
+// @updateURL    https://raw.githubusercontent.com/Badseed26/ec-userscripts/main/aroflo-photo-drag.user.js
+// @downloadURL  https://raw.githubusercontent.com/Badseed26/ec-userscripts/main/aroflo-photo-drag.user.js
 // ==/UserScript==
 
 // Built from src/aroflo-photo-drag.js by build.py. Change src/aroflo-photo-drag.js, not this file.
@@ -19,58 +21,65 @@
   // Live updates (23/10): Tampermonkey only checks for a new version every few hours. This checks the repo's latest commit every
   // 2 min (free when nothing's changed) and keeps the newest code here, so a push runs on the next page load. If the new code needs
   // a permission this install hasn't got, or this browser won't run it, the built in copy below runs like before.
-  const __wreName = "aroflo-photo-drag", __wreVer = "1.5", __wreHave = new Set(["// @connect *", "// @exclude *://*.aroflo.com/*", "// @grant GM_getValue", "// @grant GM_setValue", "// @grant GM_xmlhttpRequest", "// @match *://*/*", "// @run-at document-start"]);
-  const __wreInfo0 = typeof GM_info != 'undefined' ? GM_info : null;
-  const __wreSay = m => { try { console.log('[WRE live update] ' + __wreName + ': ' + m); } catch (e) {} };
-  const __wreCmp = (a, b) => { const x = String(a).split('.').map(Number), y = String(b).split('.').map(Number); for (let i = 0; i < Math.max(x.length, y.length); i++) { const d = (x[i] || 0) - (y[i] || 0); if (d) return d; } return 0; };
-  const __wreMeta = c => { const h = (String(c).match(/==UserScript==([\s\S]*?)==\/UserScript==/) || [])[1] || ''; return { v: (h.match(/^\/\/ @version\s+(\S+)/m) || [])[1] || '', need: (h.match(/^\/\/ @(grant|connect|match|exclude|include|run-at|sandbox)\s+.+$/gm) || []).map(s => s.replace(/\s+/g, ' ').trim()) }; };
-  const __wreMissing = need => need.filter(x => !__wreHave.has(x) && !(/^\/\/ @connect /.test(x) && __wreHave.has('// @connect *')));
+  const __ecName = "aroflo-photo-drag", __ecVer = "1.6", __ecHave = new Set(["// @connect *", "// @exclude *://*.aroflo.com/*", "// @grant GM_deleteValue", "// @grant GM_getValue", "// @grant GM_listValues", "// @grant GM_setValue", "// @grant GM_xmlhttpRequest", "// @match *://*/*", "// @run-at document-start"]);
+  const __ecInfo0 = typeof GM_info != 'undefined' ? GM_info : null;
+  const __ecSay = m => { try { console.log('[live update] ' + __ecName + ': ' + m); } catch (e) {} };
+  const __ecCmp = (a, b) => { const x = String(a).split('.').map(Number), y = String(b).split('.').map(Number); for (let i = 0; i < Math.max(x.length, y.length); i++) { const d = (x[i] || 0) - (y[i] || 0); if (d) return d; } return 0; };
+  const __ecMeta = c => { const h = (String(c).match(/==UserScript==([\s\S]*?)==\/UserScript==/) || [])[1] || ''; return { v: (h.match(/^\/\/ @version\s+(\S+)/m) || [])[1] || '', need: (h.match(/^\/\/ @(grant|connect|match|exclude|include|run-at|sandbox)\s+.+$/gm) || []).map(s => s.replace(/\s+/g, ' ').trim()) }; };
+  const __ecMissing = need => need.filter(x => !__ecHave.has(x) && !(/^\/\/ @connect /.test(x) && __ecHave.has('// @connect *')));
   // the newer code, run with GM_info saying its own version
-  function __wreRun(__wreCode, __wreV) { const GM_info = __wreInfo0 ? Object.assign({}, __wreInfo0, { script: Object.assign({}, __wreInfo0.script, { version: __wreV }) }) : undefined; eval(__wreCode); }
-  function __wreLive() {
-    let c = null; try { c = GM_getValue('wreLiveCode', null); } catch (e) { return false; }
-    if (!c || !c.code || __wreCmp(c.v, __wreVer) <= 0) return false;
-    const miss = __wreMissing(__wreMeta(c.code).need); if (miss.length) { __wreSay(c.v + ' needs ' + miss.join(', ') + ', running the built in ' + __wreVer + ' till Tampermonkey updates'); return false; }
-    try { eval('0'); } catch (e) { __wreSay('this browser won\'t run live code (' + e.message + '), running the built in ' + __wreVer); return false; }
-    try { __wreRun(c.code, c.v); } catch (e) { if (e instanceof SyntaxError) { __wreSay(c.v + ' won\'t parse, running the built in ' + __wreVer); return false; } __wreSay(c.v + ' threw: ' + e.message); }
-    __wreSay('running ' + c.v + ' (built in is ' + __wreVer + ')'); return true;
+  function __ecRun(__ecCode, __ecV) { const GM_info = __ecInfo0 ? Object.assign({}, __ecInfo0, { script: Object.assign({}, __ecInfo0.script, { version: __ecV }) }) : undefined; eval(__ecCode); }
+  function __ecLive() {
+    let c = null; try { c = GM_getValue('ecLiveCode', null); } catch (e) { return false; }
+    if (!c || !c.code || __ecCmp(c.v, __ecVer) <= 0) return false;
+    const miss = __ecMissing(__ecMeta(c.code).need); if (miss.length) { __ecSay(c.v + ' needs ' + miss.join(', ') + ', running the built in ' + __ecVer + ' till Tampermonkey updates'); return false; }
+    try { eval('0'); } catch (e) { __ecSay('this browser won\'t run live code (' + e.message + '), running the built in ' + __ecVer); return false; }
+    try { __ecRun(c.code, c.v); } catch (e) { if (e instanceof SyntaxError) { __ecSay(c.v + ' won\'t parse, running the built in ' + __ecVer); return false; } __ecSay(c.v + ' threw: ' + e.message); }
+    __ecSay('running ' + c.v + ' (built in is ' + __ecVer + ')'); return true;
   }
   // keep newer code once it's been fetched (sha = the commit, or raw:<version> when it came the fallback way)
-  function __wreTake(code, sha, tag) {
+  function __ecTake(code, sha, tag) {
     if (!/==\/UserScript==/.test(code)) return;
-    const m = __wreMeta(code); if (!m.v) return;
-    if (__wreCmp(m.v, __wreVer) > 0) {
+    const m = __ecMeta(code); if (!m.v) return;
+    if (__ecCmp(m.v, __ecVer) > 0) {
       let ok = true; try { new Function(code); } catch (e) { ok = !(e instanceof SyntaxError); }
-      if (!ok) { __wreSay(m.v + ' won\'t parse, not keeping it'); GM_setValue('wreLiveSha', sha); return; }
-      const old = GM_getValue('wreLiveCode', null); if (!old || old.v != m.v) __wreSay('got ' + m.v + ', it runs on the next page load');
-      GM_setValue('wreLiveCode', { v: m.v, code, sha, at: Date.now() });
-    } else GM_setValue('wreLiveCode', null); // Tampermonkey's copy has caught up
-    GM_setValue('wreLiveSha', sha); if (tag) GM_setValue('wreLiveEtag', tag);
+      if (!ok) { __ecSay(m.v + ' won\'t parse, not keeping it'); GM_setValue('ecLiveSha', sha); return; }
+      const old = GM_getValue('ecLiveCode', null); if (!old || old.v != m.v) __ecSay('got ' + m.v + ', it runs on the next page load');
+      GM_setValue('ecLiveCode', { v: m.v, code, sha, at: Date.now() });
+    } else GM_setValue('ecLiveCode', null); // Tampermonkey's copy has caught up
+    GM_setValue('ecLiveSha', sha); if (tag) GM_setValue('ecLiveEtag', tag);
   }
   // GitHub's commit check is limited per internet address, and on 4G/5G that address is shared with lots of other
   // phones, so it can get turned away. Then the newest file is fetched straight off main instead (5/11).
-  function __wreRaw() {
-    GM_xmlhttpRequest({ method: 'GET', url: 'https://raw.githubusercontent.com/Badseed26/wre-userscripts/main/src/' + __wreName + '.js?t=' + Date.now(), timeout: 30000, headers: { 'Cache-Control': 'no-cache' }, onload: q => {
-      try { if (q.status != 200) return; const v = __wreMeta(q.responseText || '').v; if (v) __wreTake(q.responseText, 'raw:' + v); } catch (e) {} } });
+  function __ecRaw() {
+    GM_xmlhttpRequest({ method: 'GET', url: 'https://raw.githubusercontent.com/Badseed26/ec-userscripts/main/src/' + __ecName + '.js?t=' + Date.now(), timeout: 30000, headers: { 'Cache-Control': 'no-cache' }, onload: q => {
+      try { if (q.status != 200) return; const v = __ecMeta(q.responseText || '').v; if (v) __ecTake(q.responseText, 'raw:' + v); } catch (e) {} } });
   }
-  function __wreCheck() {
+  function __ecCheck() {
     try {
-      if (Date.now() - GM_getValue('wreLiveAt', 0) < 2 * 60e3) return; GM_setValue('wreLiveAt', Date.now());
-      const et = GM_getValue('wreLiveEtag', ''), hd = { Accept: 'application/vnd.github+json' }; if (et) hd['If-None-Match'] = et;
-      GM_xmlhttpRequest({ method: 'GET', url: 'https://api.github.com/repos/Badseed26/wre-userscripts/commits/main', headers: hd, timeout: 20000, onerror: __wreRaw, ontimeout: __wreRaw, onload: r => {
+      if (Date.now() - GM_getValue('ecLiveAt', 0) < 2 * 60e3) return; GM_setValue('ecLiveAt', Date.now());
+      const et = GM_getValue('ecLiveEtag', ''), hd = { Accept: 'application/vnd.github+json' }; if (et) hd['If-None-Match'] = et;
+      GM_xmlhttpRequest({ method: 'GET', url: 'https://api.github.com/repos/Badseed26/ec-userscripts/commits/main', headers: hd, timeout: 20000, onerror: __ecRaw, ontimeout: __ecRaw, onload: r => {
         try {
           if (r.status == 304) return; // nothing new, and it doesn't count against GitHub's limit
-          if (r.status != 200) { __wreSay('GitHub said ' + r.status + ', checking the file directly'); return __wreRaw(); }
+          if (r.status != 200) { __ecSay('GitHub said ' + r.status + ', checking the file directly'); return __ecRaw(); }
           const sha = (JSON.parse(r.responseText) || {}).sha, tag = (((r.responseHeaders || '').match(/^etag:\s*(.+)$/mi) || [])[1] || '').trim();
-          if (!sha) return; if (sha == GM_getValue('wreLiveSha', '')) { if (tag) GM_setValue('wreLiveEtag', tag); return; }
-          GM_xmlhttpRequest({ method: 'GET', url: 'https://raw.githubusercontent.com/Badseed26/wre-userscripts/' + sha + '/src/' + __wreName + '.js', timeout: 30000, onload: q => {
-            try { if (q.status == 200) __wreTake(q.responseText || '', sha, tag); } catch (e) {} } });
+          if (!sha) return; if (sha == GM_getValue('ecLiveSha', '')) { if (tag) GM_setValue('ecLiveEtag', tag); return; }
+          GM_xmlhttpRequest({ method: 'GET', url: 'https://raw.githubusercontent.com/Badseed26/ec-userscripts/' + sha + '/src/' + __ecName + '.js', timeout: 30000, onload: q => {
+            try { if (q.status == 200) __ecTake(q.responseText || '', sha, tag); } catch (e) {} } });
         } catch (e) {} } });
     } catch (e) {}
   }
-  if (window.top === window.self) { __wreCheck(); setInterval(__wreCheck, 2 * 60e3 + 5000); }
-  if (__wreLive()) return;
-  // ---------- the built in copy (src/aroflo-photo-drag.js at 1.5) ----------
+  if (window.top === window.self) { __ecCheck(); setInterval(__ecCheck, 2 * 60e3 + 5000); }
+  if (__ecLive()) return;
+  // ---------- the built in copy (src/aroflo-photo-drag.js at 1.6) ----------
+
+// ---------- one off (18/11/2026): moves this device's saved data over from the old names. Take this block out once every device has run it ----------
+try {
+  const nn = k => k.replace(/wre/g, 'ec').replace(/Wre/g, 'Ec').replace(/WRE/g, 'EC'), old = /(^|[^A-Za-z])(wre|Wre|WRE)/;
+  if (typeof GM_listValues == 'function') for (const k of GM_listValues()) if (old.test(k)) { const n = nn(k); if (GM_getValue(n, undefined) === undefined) GM_setValue(n, GM_getValue(k)); GM_deleteValue(k); }
+  if (/aroflo|ambrose|outlook|cnw|tradezone/.test(location.hostname)) for (const k of Object.keys(localStorage)) if (old.test(k)) { const n = nn(k); if (localStorage.getItem(n) == null) localStorage.setItem(n, localStorage.getItem(k)); localStorage.removeItem(k); }
+} catch (e) {}
 
 (function () {
   'use strict';
@@ -78,10 +87,10 @@
   // ---------- helpers ----------
   function toast(msg, bad) {
     if (!document.body) return;
-    let el = document.getElementById('wre-drag-toast');
+    let el = document.getElementById('ec-drag-toast');
     if (!el) {
       el = document.createElement('div');
-      el.id = 'wre-drag-toast';
+      el.id = 'ec-drag-toast';
       el.style.cssText = 'position:fixed;bottom:20px;right:20px;z-index:2147483647;padding:10px 14px;border-radius:6px;font:14px sans-serif;color:#fff;box-shadow:0 2px 8px rgba(0,0,0,.3);transition:opacity .3s;pointer-events:none';
       document.documentElement.appendChild(el);
     }
@@ -175,9 +184,9 @@
 
   function outline(el) {
     if (outlined === el) return;
-    if (outlined) outlined.style.outline = outlined._wreOutline || '';
+    if (outlined) outlined.style.outline = outlined._ecOutline || '';
     outlined = el;
-    if (el) { el._wreOutline = el.style.outline; el.style.outline = '3px dashed #e8731a'; }
+    if (el) { el._ecOutline = el.style.outline; el.style.outline = '3px dashed #e8731a'; }
   }
 
   // Anything dragged from a web page (it carries a link). Chrome also tags photo drags as "Files",

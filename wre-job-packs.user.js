@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         WRE job packs
-// @namespace    wre
-// @version      0.4.14
+// @name         EC job packs
+// @namespace    ec
+// @version      0.4.15
 // @description  Job pack PDFs for Ambrose jobs. A Job packs button on the AroFlo calendar (above Solar orders) lists the Ambrose jobs booked in the next X days with tick boxes, and a Job pack button sits on each Ambrose task. Run reads the task, pulls the Ambrose site photos and mud map, gets an aerial of the address (Queensland Government photos, or Google with a key), has Haiku pick the photos for the PO rooms, write the job scope and flag anything odd, builds the pack in FieldViser through its API, then puts a share link on top of the task description and the PDF in the task's documents.
 // @match        https://office.aroflo.com/ims/Site/Calendar/*
 // @match        https://office.aroflo.com/ims/Site/Service/workrequest/*
@@ -12,6 +12,8 @@
 // @grant        GM_addValueChangeListener
 // @grant        unsafeWindow
 // @grant        window.close
+// @grant        GM_listValues
+// @grant        GM_deleteValue
 // @connect      production-reportapi.ambrosebuilding.com.au
 // @connect      ambrose-production.s3-ap-southeast-2.amazonaws.com
 // @connect      amazonaws.com
@@ -27,67 +29,74 @@
 // @connect      api.github.com
 // @connect      raw.githubusercontent.com
 // @run-at       document-idle
-// @updateURL    https://raw.githubusercontent.com/Badseed26/wre-userscripts/main/wre-job-packs.user.js
-// @downloadURL  https://raw.githubusercontent.com/Badseed26/wre-userscripts/main/wre-job-packs.user.js
+// @updateURL    https://raw.githubusercontent.com/Badseed26/ec-userscripts/main/ec-job-packs.user.js
+// @downloadURL  https://raw.githubusercontent.com/Badseed26/ec-userscripts/main/ec-job-packs.user.js
 // ==/UserScript==
 
-// Built from src/wre-job-packs.js by build.py. Change src/wre-job-packs.js, not this file.
+// Built from src/ec-job-packs.js by build.py. Change src/ec-job-packs.js, not this file.
 (function () {
   // Live updates (23/10): Tampermonkey only checks for a new version every few hours. This checks the repo's latest commit every
   // 2 min (free when nothing's changed) and keeps the newest code here, so a push runs on the next page load. If the new code needs
   // a permission this install hasn't got, or this browser won't run it, the built in copy below runs like before.
-  const __wreName = "wre-job-packs", __wreVer = "0.4.14", __wreHave = new Set(["// @connect amazonaws.com", "// @connect ambrose-production.s3-ap-southeast-2.amazonaws.com", "// @connect api.anthropic.com", "// @connect api.github.com", "// @connect api.todoist.com", "// @connect cloudfront.net", "// @connect ddxqoilvgipf7.cloudfront.net", "// @connect fieldviser.com", "// @connect maps.googleapis.com", "// @connect production-reportapi.ambrosebuilding.com.au", "// @connect raw.githubusercontent.com", "// @connect spatial-gis.information.qld.gov.au", "// @connect spatial-img.information.qld.gov.au", "// @connect testing.fieldviser.com", "// @grant GM_addValueChangeListener", "// @grant GM_getValue", "// @grant GM_openInTab", "// @grant GM_setValue", "// @grant GM_xmlhttpRequest", "// @grant unsafeWindow", "// @grant window.close", "// @match https://office.aroflo.com/ims/Site/Calendar/*", "// @match https://office.aroflo.com/ims/Site/Service/workrequest/*", "// @run-at document-idle"]);
-  const __wreInfo0 = typeof GM_info != 'undefined' ? GM_info : null;
-  const __wreSay = m => { try { console.log('[WRE live update] ' + __wreName + ': ' + m); } catch (e) {} };
-  const __wreCmp = (a, b) => { const x = String(a).split('.').map(Number), y = String(b).split('.').map(Number); for (let i = 0; i < Math.max(x.length, y.length); i++) { const d = (x[i] || 0) - (y[i] || 0); if (d) return d; } return 0; };
-  const __wreMeta = c => { const h = (String(c).match(/==UserScript==([\s\S]*?)==\/UserScript==/) || [])[1] || ''; return { v: (h.match(/^\/\/ @version\s+(\S+)/m) || [])[1] || '', need: (h.match(/^\/\/ @(grant|connect|match|exclude|include|run-at|sandbox)\s+.+$/gm) || []).map(s => s.replace(/\s+/g, ' ').trim()) }; };
-  const __wreMissing = need => need.filter(x => !__wreHave.has(x) && !(/^\/\/ @connect /.test(x) && __wreHave.has('// @connect *')));
+  const __ecName = "ec-job-packs", __ecVer = "0.4.15", __ecHave = new Set(["// @connect amazonaws.com", "// @connect ambrose-production.s3-ap-southeast-2.amazonaws.com", "// @connect api.anthropic.com", "// @connect api.github.com", "// @connect api.todoist.com", "// @connect cloudfront.net", "// @connect ddxqoilvgipf7.cloudfront.net", "// @connect fieldviser.com", "// @connect maps.googleapis.com", "// @connect production-reportapi.ambrosebuilding.com.au", "// @connect raw.githubusercontent.com", "// @connect spatial-gis.information.qld.gov.au", "// @connect spatial-img.information.qld.gov.au", "// @connect testing.fieldviser.com", "// @grant GM_addValueChangeListener", "// @grant GM_deleteValue", "// @grant GM_getValue", "// @grant GM_listValues", "// @grant GM_openInTab", "// @grant GM_setValue", "// @grant GM_xmlhttpRequest", "// @grant unsafeWindow", "// @grant window.close", "// @match https://office.aroflo.com/ims/Site/Calendar/*", "// @match https://office.aroflo.com/ims/Site/Service/workrequest/*", "// @run-at document-idle"]);
+  const __ecInfo0 = typeof GM_info != 'undefined' ? GM_info : null;
+  const __ecSay = m => { try { console.log('[live update] ' + __ecName + ': ' + m); } catch (e) {} };
+  const __ecCmp = (a, b) => { const x = String(a).split('.').map(Number), y = String(b).split('.').map(Number); for (let i = 0; i < Math.max(x.length, y.length); i++) { const d = (x[i] || 0) - (y[i] || 0); if (d) return d; } return 0; };
+  const __ecMeta = c => { const h = (String(c).match(/==UserScript==([\s\S]*?)==\/UserScript==/) || [])[1] || ''; return { v: (h.match(/^\/\/ @version\s+(\S+)/m) || [])[1] || '', need: (h.match(/^\/\/ @(grant|connect|match|exclude|include|run-at|sandbox)\s+.+$/gm) || []).map(s => s.replace(/\s+/g, ' ').trim()) }; };
+  const __ecMissing = need => need.filter(x => !__ecHave.has(x) && !(/^\/\/ @connect /.test(x) && __ecHave.has('// @connect *')));
   // the newer code, run with GM_info saying its own version
-  function __wreRun(__wreCode, __wreV) { const GM_info = __wreInfo0 ? Object.assign({}, __wreInfo0, { script: Object.assign({}, __wreInfo0.script, { version: __wreV }) }) : undefined; eval(__wreCode); }
-  function __wreLive() {
-    let c = null; try { c = GM_getValue('wreLiveCode', null); } catch (e) { return false; }
-    if (!c || !c.code || __wreCmp(c.v, __wreVer) <= 0) return false;
-    const miss = __wreMissing(__wreMeta(c.code).need); if (miss.length) { __wreSay(c.v + ' needs ' + miss.join(', ') + ', running the built in ' + __wreVer + ' till Tampermonkey updates'); return false; }
-    try { eval('0'); } catch (e) { __wreSay('this browser won\'t run live code (' + e.message + '), running the built in ' + __wreVer); return false; }
-    try { __wreRun(c.code, c.v); } catch (e) { if (e instanceof SyntaxError) { __wreSay(c.v + ' won\'t parse, running the built in ' + __wreVer); return false; } __wreSay(c.v + ' threw: ' + e.message); }
-    __wreSay('running ' + c.v + ' (built in is ' + __wreVer + ')'); return true;
+  function __ecRun(__ecCode, __ecV) { const GM_info = __ecInfo0 ? Object.assign({}, __ecInfo0, { script: Object.assign({}, __ecInfo0.script, { version: __ecV }) }) : undefined; eval(__ecCode); }
+  function __ecLive() {
+    let c = null; try { c = GM_getValue('ecLiveCode', null); } catch (e) { return false; }
+    if (!c || !c.code || __ecCmp(c.v, __ecVer) <= 0) return false;
+    const miss = __ecMissing(__ecMeta(c.code).need); if (miss.length) { __ecSay(c.v + ' needs ' + miss.join(', ') + ', running the built in ' + __ecVer + ' till Tampermonkey updates'); return false; }
+    try { eval('0'); } catch (e) { __ecSay('this browser won\'t run live code (' + e.message + '), running the built in ' + __ecVer); return false; }
+    try { __ecRun(c.code, c.v); } catch (e) { if (e instanceof SyntaxError) { __ecSay(c.v + ' won\'t parse, running the built in ' + __ecVer); return false; } __ecSay(c.v + ' threw: ' + e.message); }
+    __ecSay('running ' + c.v + ' (built in is ' + __ecVer + ')'); return true;
   }
   // keep newer code once it's been fetched (sha = the commit, or raw:<version> when it came the fallback way)
-  function __wreTake(code, sha, tag) {
+  function __ecTake(code, sha, tag) {
     if (!/==\/UserScript==/.test(code)) return;
-    const m = __wreMeta(code); if (!m.v) return;
-    if (__wreCmp(m.v, __wreVer) > 0) {
+    const m = __ecMeta(code); if (!m.v) return;
+    if (__ecCmp(m.v, __ecVer) > 0) {
       let ok = true; try { new Function(code); } catch (e) { ok = !(e instanceof SyntaxError); }
-      if (!ok) { __wreSay(m.v + ' won\'t parse, not keeping it'); GM_setValue('wreLiveSha', sha); return; }
-      const old = GM_getValue('wreLiveCode', null); if (!old || old.v != m.v) __wreSay('got ' + m.v + ', it runs on the next page load');
-      GM_setValue('wreLiveCode', { v: m.v, code, sha, at: Date.now() });
-    } else GM_setValue('wreLiveCode', null); // Tampermonkey's copy has caught up
-    GM_setValue('wreLiveSha', sha); if (tag) GM_setValue('wreLiveEtag', tag);
+      if (!ok) { __ecSay(m.v + ' won\'t parse, not keeping it'); GM_setValue('ecLiveSha', sha); return; }
+      const old = GM_getValue('ecLiveCode', null); if (!old || old.v != m.v) __ecSay('got ' + m.v + ', it runs on the next page load');
+      GM_setValue('ecLiveCode', { v: m.v, code, sha, at: Date.now() });
+    } else GM_setValue('ecLiveCode', null); // Tampermonkey's copy has caught up
+    GM_setValue('ecLiveSha', sha); if (tag) GM_setValue('ecLiveEtag', tag);
   }
   // GitHub's commit check is limited per internet address, and on 4G/5G that address is shared with lots of other
   // phones, so it can get turned away. Then the newest file is fetched straight off main instead (5/11).
-  function __wreRaw() {
-    GM_xmlhttpRequest({ method: 'GET', url: 'https://raw.githubusercontent.com/Badseed26/wre-userscripts/main/src/' + __wreName + '.js?t=' + Date.now(), timeout: 30000, headers: { 'Cache-Control': 'no-cache' }, onload: q => {
-      try { if (q.status != 200) return; const v = __wreMeta(q.responseText || '').v; if (v) __wreTake(q.responseText, 'raw:' + v); } catch (e) {} } });
+  function __ecRaw() {
+    GM_xmlhttpRequest({ method: 'GET', url: 'https://raw.githubusercontent.com/Badseed26/ec-userscripts/main/src/' + __ecName + '.js?t=' + Date.now(), timeout: 30000, headers: { 'Cache-Control': 'no-cache' }, onload: q => {
+      try { if (q.status != 200) return; const v = __ecMeta(q.responseText || '').v; if (v) __ecTake(q.responseText, 'raw:' + v); } catch (e) {} } });
   }
-  function __wreCheck() {
+  function __ecCheck() {
     try {
-      if (Date.now() - GM_getValue('wreLiveAt', 0) < 2 * 60e3) return; GM_setValue('wreLiveAt', Date.now());
-      const et = GM_getValue('wreLiveEtag', ''), hd = { Accept: 'application/vnd.github+json' }; if (et) hd['If-None-Match'] = et;
-      GM_xmlhttpRequest({ method: 'GET', url: 'https://api.github.com/repos/Badseed26/wre-userscripts/commits/main', headers: hd, timeout: 20000, onerror: __wreRaw, ontimeout: __wreRaw, onload: r => {
+      if (Date.now() - GM_getValue('ecLiveAt', 0) < 2 * 60e3) return; GM_setValue('ecLiveAt', Date.now());
+      const et = GM_getValue('ecLiveEtag', ''), hd = { Accept: 'application/vnd.github+json' }; if (et) hd['If-None-Match'] = et;
+      GM_xmlhttpRequest({ method: 'GET', url: 'https://api.github.com/repos/Badseed26/ec-userscripts/commits/main', headers: hd, timeout: 20000, onerror: __ecRaw, ontimeout: __ecRaw, onload: r => {
         try {
           if (r.status == 304) return; // nothing new, and it doesn't count against GitHub's limit
-          if (r.status != 200) { __wreSay('GitHub said ' + r.status + ', checking the file directly'); return __wreRaw(); }
+          if (r.status != 200) { __ecSay('GitHub said ' + r.status + ', checking the file directly'); return __ecRaw(); }
           const sha = (JSON.parse(r.responseText) || {}).sha, tag = (((r.responseHeaders || '').match(/^etag:\s*(.+)$/mi) || [])[1] || '').trim();
-          if (!sha) return; if (sha == GM_getValue('wreLiveSha', '')) { if (tag) GM_setValue('wreLiveEtag', tag); return; }
-          GM_xmlhttpRequest({ method: 'GET', url: 'https://raw.githubusercontent.com/Badseed26/wre-userscripts/' + sha + '/src/' + __wreName + '.js', timeout: 30000, onload: q => {
-            try { if (q.status == 200) __wreTake(q.responseText || '', sha, tag); } catch (e) {} } });
+          if (!sha) return; if (sha == GM_getValue('ecLiveSha', '')) { if (tag) GM_setValue('ecLiveEtag', tag); return; }
+          GM_xmlhttpRequest({ method: 'GET', url: 'https://raw.githubusercontent.com/Badseed26/ec-userscripts/' + sha + '/src/' + __ecName + '.js', timeout: 30000, onload: q => {
+            try { if (q.status == 200) __ecTake(q.responseText || '', sha, tag); } catch (e) {} } });
         } catch (e) {} } });
     } catch (e) {}
   }
-  if (window.top === window.self) { __wreCheck(); setInterval(__wreCheck, 2 * 60e3 + 5000); }
-  if (__wreLive()) return;
-  // ---------- the built in copy (src/wre-job-packs.js at 0.4.14) ----------
+  if (window.top === window.self) { __ecCheck(); setInterval(__ecCheck, 2 * 60e3 + 5000); }
+  if (__ecLive()) return;
+  // ---------- the built in copy (src/ec-job-packs.js at 0.4.15) ----------
+
+// ---------- one off (18/11/2026): moves this device's saved data over from the old names. Take this block out once every device has run it ----------
+try {
+  const nn = k => k.replace(/wre/g, 'ec').replace(/Wre/g, 'Ec').replace(/WRE/g, 'EC'), old = /(^|[^A-Za-z])(wre|Wre|WRE)/;
+  if (typeof GM_listValues == 'function') for (const k of GM_listValues()) if (old.test(k)) { const n = nn(k); if (GM_getValue(n, undefined) === undefined) GM_setValue(n, GM_getValue(k)); GM_deleteValue(k); }
+  if (/aroflo|ambrose|outlook|cnw|tradezone/.test(location.hostname)) for (const k of Object.keys(localStorage)) if (old.test(k)) { const n = nn(k); if (localStorage.getItem(n) == null) localStorage.setItem(n, localStorage.getItem(k)); localStorage.removeItem(k); }
+} catch (e) {}
 
 (function () {
   'use strict';
@@ -112,18 +121,18 @@
   //   background tab that closes itself. Never touches status, bookings, notes or anything else.
 
   const W = typeof unsafeWindow != 'undefined' ? unsafeWindow : window;
-  if (W.__wreJobPacks || window.top !== window.self) return;
-  W.__wreJobPacks = 1;
+  if (W.__ecJobPacks || window.top !== window.self) return;
+  W.__ecJobPacks = 1;
 
   const ORANGE = '#e8731a', GREY = '#4a4541';
   const AMB = 'https://production-reportapi.ambrosebuilding.com.au/ReportData/ImagesReport?jobRecID=';
   const CF = 'https://ddxqoilvgipf7.cloudfront.net/800x800/media/';
   const TDA = 'https://api.todoist.com/api/v1/';
-  const FU = '6hfHcM9Gf74fgcJw';          // Todoist: WRE follow ups
+  const FU = '6hfHcM9Gf74fgcJw';          // Todoist: follow ups
   const MODELS = { haiku: 'claude-haiku-5-5', sonnet: 'claude-sonnet-5-5' };
   const AIPRICE = { 'claude-haiku-5-5': [0.1, 0.5], 'claude-sonnet-5-5': [2, 10] };   // USD per MTok, in and out
   const DEF = { days: 14, model: 'haiku', fvBase: 'https://testing.fieldviser.com' };
-  const HASH = '#wre-jobpack';
+  const HASH = '#ec-jobpack';
 
   const sleep = ms => new Promise(r => setTimeout(r, ms));
   const now = () => Date.now();
@@ -297,7 +306,7 @@
   const capOf = p => /for company/i.test(p.cap) ? (/front elevation/i.test(p.room + p.cap) ? 'Front of house' : p.room) : (p.cap || p.room);
 
   // ---------- AI ----------
-  const PICK_SYS = `You set up a job pack PDF for the electricians at Wired Rite Electrical (Queensland) on an insurance repair job from the builder Ambrose. You get the AroFlo task description (the builder's PO lines, contacts removed) and the site photos the builder's estimator took, numbered, each with the room it was filed under and the estimator's caption, as small thumbnails.
+  const PICK_SYS = `You set up a job pack PDF for the electricians at an electrical contractor in Queensland on an insurance repair job from the builder Ambrose. You get the AroFlo task description (the builder's PO lines, contacts removed) and the site photos the builder's estimator took, numbered, each with the room it was filed under and the estimator's caption, as small thumbnails.
 
 1. Pick the photos.
 Keep:
@@ -518,7 +527,7 @@ Answer with JSON only: {"pin_on_house":true,"house_in_frame":"whole","note":""} 
   };
   const hasDoc = (list, name) => !!list && list.toLowerCase().includes(name.toLowerCase().replace(/\.pdf$/, ''));
 
-  // the description line is JOB PACK in bold at 16px in WRE orange, the words themselves the link (Ethan, 16/11). Older lines (JOB PACK: <address>) come off.
+  // the description line is JOB PACK in bold at 16px in brand orange, the words themselves the link (Ethan, 16/11). Older lines (JOB PACK: <address>) come off.
   const packUrl = push => String(push.line || '').replace(/^JOB PACK:?\s*/, '');
   const linkOnTop = (h, url) => { const d = html(h); const f = [...d.body.children].find(e => clean(e.textContent)); const a = f && f.querySelector('a');
     return !!(f && a && clean(f.textContent) == 'JOB PACK' && a.getAttribute('href') == url && f.querySelector('strong,b') && /font-size:\s*16px/i.test(f.innerHTML) && /color:\s*#e8731a/i.test(f.innerHTML)); };

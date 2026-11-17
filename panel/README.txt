@@ -4,14 +4,14 @@ DESK PANEL - SETUP
    If it's not on the PC already, get it from python.org and tick "Add python.exe to PATH" when installing.
    AHK buttons also need AutoHotkey v2 installed.
 
-2. Put this folder at:
-   Documents\WRE\WRE Panel
+2. Put this folder anywhere on the PC, e.g.:
+   Documents\Desk Panel
 
 3. Clipboard Brain
-   It isn't on the PC yet. Download wre-clipboard-brain.ahk from the wre-userscripts repo and put it in Documents\WRE
+   Nothing to do. The panel downloads ec-clipboard-brain.ahk into this folder and keeps it up to date.
 
 4. First run
-   Double click "Start WRE Panel.bat"
+   Double click "Start Desk Panel.bat"
    Windows Firewall will pop up: tick Private networks and hit Allow.
    The window shows the iPad address (it's also saved in ipad_address.txt).
 
@@ -25,13 +25,13 @@ DESK PANEL - SETUP
    To stop that: python panel.py --nostartup
 
 UPDATES
-The panel updates itself from the wre-userscripts repo every 15 minutes (or tap Check for updates on the PC tab).
+The panel updates itself from the ec-userscripts repo every 15 minutes (or tap Check for updates on the PC tab).
 That covers the panel, the buttons and Clipboard Brain. If Clipboard Brain is running it reloads itself.
 The iPad page reloads on its own when the PC updates.
 To turn auto updates off, put an empty file called no_auto_update.txt in this folder.
 
 LADS (NOTES, PHOTOS, TIMESHEETS)
-The Lads tab and the bar on Favourites show what's still owed, from the WRE Calendar NPT issues in Todoist.
+The Lads tab and the bar on Favourites show what's still owed, from the EC Calendar NPT issues in Todoist.
 First time: tap Connect Todoist and paste your API token (Todoist: Settings, Integrations, Developer).
 It's saved in todoist_token.txt in this folder and never leaves the PC.
 Tap a job on the Lads tab to OK an item (same as OK on the calendar or dashboard) or tick the issue off.
@@ -52,7 +52,7 @@ Button types:
   urls     opens a few links at once
   app      opens a desktop app, like Outlook
   claude   opens a new Claude chat on the PC with the prompt filled in
-  dashrun  runs a check through the WRE Dashboard, same as its Run button
+  dashrun  runs a check through the dashboard, same as its Run button
   ahk      runs an AutoHotkey file
   file     opens a file or folder
   keys     presses a hotkey on the PC, like ctrl+alt+1

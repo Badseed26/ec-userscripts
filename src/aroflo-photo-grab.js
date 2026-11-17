@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AroFlo photo grab (Ambrose)
-// @namespace    wre
-// @version      1.10
+// @namespace    ec
+// @version      1.11
 // @description  Pick photos from the matching AroFlo task, see each day's site notes, and upload full-res originals to Ambrose in batches of 4 with comments filled in
 // @match        https://tradiesadmin.ambroseconstruct.com.au/*
 // @match        https://tradies.ambrosebuilding.com.au/*
@@ -9,12 +9,21 @@
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        GM_registerMenuCommand
+// @grant        GM_listValues
+// @grant        GM_deleteValue
 // @connect      office.aroflo.com
 // @connect      api.anthropic.com
 // @run-at       document-idle
-// @updateURL    https://raw.githubusercontent.com/Badseed26/wre-userscripts/main/aroflo-photo-grab.user.js
-// @downloadURL  https://raw.githubusercontent.com/Badseed26/wre-userscripts/main/aroflo-photo-grab.user.js
+// @updateURL    https://raw.githubusercontent.com/Badseed26/ec-userscripts/main/aroflo-photo-grab.user.js
+// @downloadURL  https://raw.githubusercontent.com/Badseed26/ec-userscripts/main/aroflo-photo-grab.user.js
 // ==/UserScript==
+
+// ---------- one off (18/11/2026): moves this device's saved data over from the old names. Take this block out once every device has run it ----------
+try {
+  const nn = k => k.replace(/wre/g, 'ec').replace(/Wre/g, 'Ec').replace(/WRE/g, 'EC'), old = /(^|[^A-Za-z])(wre|Wre|WRE)/;
+  if (typeof GM_listValues == 'function') for (const k of GM_listValues()) if (old.test(k)) { const n = nn(k); if (GM_getValue(n, undefined) === undefined) GM_setValue(n, GM_getValue(k)); GM_deleteValue(k); }
+  if (/aroflo|ambrose|outlook|cnw|tradezone/.test(location.hostname)) for (const k of Object.keys(localStorage)) if (old.test(k)) { const n = nn(k); if (localStorage.getItem(n) == null) localStorage.setItem(n, localStorage.getItem(k)); localStorage.removeItem(k); }
+} catch (e) {}
 
 (function () {
   'use strict';
@@ -149,10 +158,10 @@
   const MODEL = 'claude-haiku-5-5';
   const PRICE_IN = 0.10, PRICE_OUT = 0.50; // USD per million tokens
   const getKey = (force) => {
-    let k = force ? '' : GM_getValue('wreAnthropicKey', '');
+    let k = force ? '' : GM_getValue('ecAnthropicKey', '');
     if (!k) {
       k = (prompt('Paste your Anthropic API key (from console.anthropic.com). It stays in Tampermonkey on this device.') || '').trim();
-      if (k) GM_setValue('wreAnthropicKey', k);
+      if (k) GM_setValue('ecAnthropicKey', k);
     }
     return k;
   };
@@ -177,7 +186,7 @@
     });
     if (!r.responseText) throw new Error('no reply from the AI (status ' + r.status + '). If Tampermonkey opened a tab asking to allow api.anthropic.com, hit Always allow');
     let j; try { j = JSON.parse(r.responseText); } catch (e) { throw new Error('the AI sent back something odd (status ' + r.status + '): ' + r.responseText.slice(0, 120)); }
-    if (r.status === 401) { GM_setValue('wreAnthropicKey', ''); throw new Error('API key not accepted. Hit AI captions again to paste a new one'); }
+    if (r.status === 401) { GM_setValue('ecAnthropicKey', ''); throw new Error('API key not accepted. Hit AI captions again to paste a new one'); }
     if (r.status >= 400) throw new Error((j.error && j.error.message) || ('AI error ' + r.status));
     const txt = (j.content || []).filter(c => c.type === 'text').map(c => c.text || '').join('');
     const m = txt.match(/\[[\s\S]*\]/);
@@ -250,59 +259,59 @@
 
   // ---------- UI ----------
   const css = `
-  #wre-grab-btn{position:fixed;left:18px;bottom:18px;z-index:2147483646;background:${ORANGE};color:#fff;border:0;border-radius:6px;padding:10px 14px;font:600 14px sans-serif;box-shadow:0 2px 8px rgba(0,0,0,.35);cursor:pointer}
-  #wre-grab{position:fixed;inset:0;z-index:2147483647;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;font:14px sans-serif}
-  #wre-grab .box{background:#fff;color:#222;width:min(1040px,96vw);max-height:92vh;border-radius:8px;display:flex;flex-direction:column;overflow:hidden}
-  #wre-grab .top{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:12px 14px;border-bottom:1px solid #ddd}
-  #wre-grab .top b{margin-right:auto}
-  #wre-grab select,#wre-grab input[type=text]{padding:6px;border:1px solid #bbb;border-radius:4px;font-size:14px}
-  #wre-grab button{padding:7px 12px;border:1px solid #bbb;border-radius:4px;background:#f4f4f4;cursor:pointer;font-size:14px}
-  #wre-grab button.go{background:${ORANGE};border-color:${ORANGE};color:#fff;font-weight:600}
-  #wre-grab button:disabled{opacity:.5;cursor:default}
-  #wre-grab .body{overflow:auto;padding:10px 14px}
-  #wre-grab .day{margin:14px 0 6px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
-  #wre-grab .day b{font-size:15px}
-  #wre-grab .chev{border:0;background:none;padding:2px 4px;color:#555;font-size:13px}
-  #wre-grab .chev:before{content:'\\25B8 ';display:inline-block;transition:transform .15s}
-  #wre-grab .chev.open:before{content:'\\25BE '}
-  #wre-grab .flag{background:#b3261e;color:#fff;border-radius:10px;padding:2px 8px;font-size:12px;font-weight:600}
-  #wre-grab .notes{display:none;background:#f7f4f1;border-left:3px solid ${ORANGE};padding:6px 10px;margin:0 0 8px;border-radius:4px}
-  #wre-grab .notes.open{display:block}
-  #wre-grab .note{margin:6px 0;line-height:1.4}
-  #wre-grab .note small{color:#777}
-  #wre-grab .nbody.plain{white-space:pre-line}
-  #wre-grab .nbody p,#wre-grab .nbody div{margin:0 0 4px}
-  #wre-grab .nbody ul,#wre-grab .nbody ol{margin:2px 0 6px 20px;padding:0}
-  #wre-grab .nbody li{margin:1px 0}
-  #wre-grab .note.office{opacity:.65}
-  #wre-grab .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px}
-  #wre-grab .tile{display:flex;flex-direction:column;gap:4px}
-  #wre-grab .ph{position:relative;border:3px solid transparent;border-radius:6px;cursor:pointer;background:#eee;aspect-ratio:3/4;overflow:hidden}
-  #wre-grab .ph img{width:100%;height:100%;object-fit:cover;display:block}
-  #wre-grab .ph.on{border-color:${ORANGE}}
-  #wre-grab .ph .tick{position:absolute;top:4px;right:4px;width:22px;height:22px;border-radius:50%;background:rgba(255,255,255,.85);border:2px solid #888;font:700 14px/18px sans-serif;text-align:center;color:#fff}
-  #wre-grab .ph.on .tick{background:${ORANGE};border-color:${ORANGE}}
-  #wre-grab .ph .cap{position:absolute;left:0;right:0;bottom:0;background:rgba(0,0,0,.55);color:#fff;font-size:11px;padding:2px 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  #wre-grab textarea.cmt{width:100%;box-sizing:border-box;font:12px/1.3 sans-serif;padding:4px;border:1px solid #ccc;border-radius:4px;resize:vertical;min-height:34px}
-  #wre-grab .foot{display:flex;gap:8px;align-items:center;padding:10px 14px;border-top:1px solid #ddd;flex-wrap:wrap}
-  #wre-grab .msg{margin-right:auto;color:#444}
-  #wre-grab .err{color:#b3261e}
+  #ec-grab-btn{position:fixed;left:18px;bottom:18px;z-index:2147483646;background:${ORANGE};color:#fff;border:0;border-radius:6px;padding:10px 14px;font:600 14px sans-serif;box-shadow:0 2px 8px rgba(0,0,0,.35);cursor:pointer}
+  #ec-grab{position:fixed;inset:0;z-index:2147483647;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;font:14px sans-serif}
+  #ec-grab .box{background:#fff;color:#222;width:min(1040px,96vw);max-height:92vh;border-radius:8px;display:flex;flex-direction:column;overflow:hidden}
+  #ec-grab .top{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:12px 14px;border-bottom:1px solid #ddd}
+  #ec-grab .top b{margin-right:auto}
+  #ec-grab select,#ec-grab input[type=text]{padding:6px;border:1px solid #bbb;border-radius:4px;font-size:14px}
+  #ec-grab button{padding:7px 12px;border:1px solid #bbb;border-radius:4px;background:#f4f4f4;cursor:pointer;font-size:14px}
+  #ec-grab button.go{background:${ORANGE};border-color:${ORANGE};color:#fff;font-weight:600}
+  #ec-grab button:disabled{opacity:.5;cursor:default}
+  #ec-grab .body{overflow:auto;padding:10px 14px}
+  #ec-grab .day{margin:14px 0 6px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  #ec-grab .day b{font-size:15px}
+  #ec-grab .chev{border:0;background:none;padding:2px 4px;color:#555;font-size:13px}
+  #ec-grab .chev:before{content:'\\25B8 ';display:inline-block;transition:transform .15s}
+  #ec-grab .chev.open:before{content:'\\25BE '}
+  #ec-grab .flag{background:#b3261e;color:#fff;border-radius:10px;padding:2px 8px;font-size:12px;font-weight:600}
+  #ec-grab .notes{display:none;background:#f7f4f1;border-left:3px solid ${ORANGE};padding:6px 10px;margin:0 0 8px;border-radius:4px}
+  #ec-grab .notes.open{display:block}
+  #ec-grab .note{margin:6px 0;line-height:1.4}
+  #ec-grab .note small{color:#777}
+  #ec-grab .nbody.plain{white-space:pre-line}
+  #ec-grab .nbody p,#ec-grab .nbody div{margin:0 0 4px}
+  #ec-grab .nbody ul,#ec-grab .nbody ol{margin:2px 0 6px 20px;padding:0}
+  #ec-grab .nbody li{margin:1px 0}
+  #ec-grab .note.office{opacity:.65}
+  #ec-grab .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px}
+  #ec-grab .tile{display:flex;flex-direction:column;gap:4px}
+  #ec-grab .ph{position:relative;border:3px solid transparent;border-radius:6px;cursor:pointer;background:#eee;aspect-ratio:3/4;overflow:hidden}
+  #ec-grab .ph img{width:100%;height:100%;object-fit:cover;display:block}
+  #ec-grab .ph.on{border-color:${ORANGE}}
+  #ec-grab .ph .tick{position:absolute;top:4px;right:4px;width:22px;height:22px;border-radius:50%;background:rgba(255,255,255,.85);border:2px solid #888;font:700 14px/18px sans-serif;text-align:center;color:#fff}
+  #ec-grab .ph.on .tick{background:${ORANGE};border-color:${ORANGE}}
+  #ec-grab .ph .cap{position:absolute;left:0;right:0;bottom:0;background:rgba(0,0,0,.55);color:#fff;font-size:11px;padding:2px 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #ec-grab textarea.cmt{width:100%;box-sizing:border-box;font:12px/1.3 sans-serif;padding:4px;border:1px solid #ccc;border-radius:4px;resize:vertical;min-height:34px}
+  #ec-grab .foot{display:flex;gap:8px;align-items:center;padding:10px 14px;border-top:1px solid #ddd;flex-wrap:wrap}
+  #ec-grab .msg{margin-right:auto;color:#444}
+  #ec-grab .err{color:#b3261e}
   /* phone: full-screen picker, 16px inputs so iOS doesn't zoom in, bigger tap targets, clear of the home bar */
   @media (pointer:coarse) and (max-width:820px){
-    #wre-grab-btn{left:12px;bottom:calc(14px + env(safe-area-inset-bottom));padding:12px 16px;font-size:15px}
-    #wre-grab{align-items:stretch}
-    #wre-grab .box{width:100vw;max-height:none;height:100vh;height:100dvh;border-radius:0}
-    #wre-grab .top{padding:10px 12px;padding-top:calc(10px + env(safe-area-inset-top))}
-    #wre-grab .top b{width:100%}
-    #wre-grab select,#wre-grab input[type=text]{font-size:16px;padding:8px;max-width:100% !important;flex:1 1 140px}
-    #wre-grab button{font-size:15px;padding:10px 14px}
-    #wre-grab .chev{padding:8px 6px;font-size:14px}
-    #wre-grab .body{padding:8px 10px;-webkit-overflow-scrolling:touch}
-    #wre-grab .grid{grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px}
-    #wre-grab .ph .tick{width:28px;height:28px;font:700 17px/24px sans-serif}
-    #wre-grab textarea.cmt{font-size:16px;min-height:40px}
-    #wre-grab .foot{padding:8px 10px;padding-bottom:calc(8px + env(safe-area-inset-bottom))}
-    #wre-grab .msg{width:100%;margin-right:0}
+    #ec-grab-btn{left:12px;bottom:calc(14px + env(safe-area-inset-bottom));padding:12px 16px;font-size:15px}
+    #ec-grab{align-items:stretch}
+    #ec-grab .box{width:100vw;max-height:none;height:100vh;height:100dvh;border-radius:0}
+    #ec-grab .top{padding:10px 12px;padding-top:calc(10px + env(safe-area-inset-top))}
+    #ec-grab .top b{width:100%}
+    #ec-grab select,#ec-grab input[type=text]{font-size:16px;padding:8px;max-width:100% !important;flex:1 1 140px}
+    #ec-grab button{font-size:15px;padding:10px 14px}
+    #ec-grab .chev{padding:8px 6px;font-size:14px}
+    #ec-grab .body{padding:8px 10px;-webkit-overflow-scrolling:touch}
+    #ec-grab .grid{grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px}
+    #ec-grab .ph .tick{width:28px;height:28px;font:700 17px/24px sans-serif}
+    #ec-grab textarea.cmt{font-size:16px;min-height:40px}
+    #ec-grab .foot{padding:8px 10px;padding-bottom:calc(8px + env(safe-area-inset-bottom))}
+    #ec-grab .msg{width:100%;margin-right:0}
   }`;
 
   function el(tag, attrs, ...kids) {
@@ -320,7 +329,7 @@
   let thumbsCache = new Map();
 
   async function openPanel() {
-    if (document.getElementById('wre-grab')) return;
+    if (document.getElementById('ec-grab')) return;
     if (!targetInput()) return alert('Open the upload box first, then hit Grab from AroFlo.');
 
     const info = pageInfo();
@@ -524,7 +533,7 @@
       toast('Added ' + sent + ' photo' + (sent === 1 ? '' : 's') + (isAmbroseBox ? ' in ' + batches.length + ' batch' + (batches.length > 1 ? 'es' : '') : '') + (commented ? ', ' + commented + ' comment' + (commented > 1 ? 's' : '') + ' saved' : '') + (skippedComments ? '. ' + skippedComments + ' comment' + (skippedComments > 1 ? 's' : '') + ' not added, couldn\'t match the cards' : '') + '.');
     });
 
-    const wrap = el('div', { id: 'wre-grab', on: { click: e => { if (e.target === wrap) close(); } } },
+    const wrap = el('div', { id: 'ec-grab', on: { click: e => { if (e.target === wrap) close(); } } },
       el('div', { className: 'box' },
         el('div', { className: 'top' },
           el('b', {}, 'Photos from AroFlo'),
@@ -556,7 +565,7 @@
 
   // ---------- show the button whenever an upload box is on screen ----------
   document.documentElement.append(el('style', {}, css));
-  const btn = el('button', { id: 'wre-grab-btn', on: { click: openPanel } }, 'Grab from AroFlo');
+  const btn = el('button', { id: 'ec-grab-btn', on: { click: openPanel } }, 'Grab from AroFlo');
   const sync = () => {
     const has = !!targetInput();
     if (has && !btn.isConnected) document.documentElement.append(btn);

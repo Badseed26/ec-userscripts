@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AroFlo supplier items
-// @namespace    wre
-// @version      0.39
+// @namespace    ec
+// @version      0.40
 // @description  Supplier button on AroFlo quotes: search CNW and Tradezone with your own sign ins, pick an item, set the qty and it adds the line (item, part no, qty, cost in Value). Markup left alone, you press Save Quote. Order puts the quote's parts in your CNW or Tradezone cart (never checks out). Reprice, price compare, favourites, recents, stock at nearby branches and price history, synced through Todoist. Build from notes: AI reads the task and your notes into a priced, one-supplier material list for you to check.
 // @match        https://office.aroflo.com/ims/Site/Service/Quotes/*
 // @match        https://shop.cnw.com.au/*
@@ -10,6 +10,8 @@
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        unsafeWindow
+// @grant        GM_listValues
+// @grant        GM_deleteValue
 // @connect      shop.cnw.com.au
 // @connect      www.tradezone.com.au
 // @connect      api.todoist.com
@@ -17,8 +19,8 @@
 // @connect      api.github.com
 // @connect      raw.githubusercontent.com
 // @run-at       document-idle
-// @updateURL    https://raw.githubusercontent.com/Badseed26/wre-userscripts/main/aroflo-supplier-items.user.js
-// @downloadURL  https://raw.githubusercontent.com/Badseed26/wre-userscripts/main/aroflo-supplier-items.user.js
+// @updateURL    https://raw.githubusercontent.com/Badseed26/ec-userscripts/main/aroflo-supplier-items.user.js
+// @downloadURL  https://raw.githubusercontent.com/Badseed26/ec-userscripts/main/aroflo-supplier-items.user.js
 // ==/UserScript==
 
 // Built from src/aroflo-supplier-items.js by build.py. Change src/aroflo-supplier-items.js, not this file.
@@ -26,58 +28,65 @@
   // Live updates (23/10): Tampermonkey only checks for a new version every few hours. This checks the repo's latest commit every
   // 2 min (free when nothing's changed) and keeps the newest code here, so a push runs on the next page load. If the new code needs
   // a permission this install hasn't got, or this browser won't run it, the built in copy below runs like before.
-  const __wreName = "aroflo-supplier-items", __wreVer = "0.39", __wreHave = new Set(["// @connect api.anthropic.com", "// @connect api.github.com", "// @connect api.todoist.com", "// @connect raw.githubusercontent.com", "// @connect shop.cnw.com.au", "// @connect www.tradezone.com.au", "// @grant GM_getValue", "// @grant GM_setValue", "// @grant GM_xmlhttpRequest", "// @grant unsafeWindow", "// @match https://office.aroflo.com/ims/Site/Service/Quotes/*", "// @match https://shop.cnw.com.au/*", "// @match https://www.tradezone.com.au/*", "// @run-at document-idle"]);
-  const __wreInfo0 = typeof GM_info != 'undefined' ? GM_info : null;
-  const __wreSay = m => { try { console.log('[WRE live update] ' + __wreName + ': ' + m); } catch (e) {} };
-  const __wreCmp = (a, b) => { const x = String(a).split('.').map(Number), y = String(b).split('.').map(Number); for (let i = 0; i < Math.max(x.length, y.length); i++) { const d = (x[i] || 0) - (y[i] || 0); if (d) return d; } return 0; };
-  const __wreMeta = c => { const h = (String(c).match(/==UserScript==([\s\S]*?)==\/UserScript==/) || [])[1] || ''; return { v: (h.match(/^\/\/ @version\s+(\S+)/m) || [])[1] || '', need: (h.match(/^\/\/ @(grant|connect|match|exclude|include|run-at|sandbox)\s+.+$/gm) || []).map(s => s.replace(/\s+/g, ' ').trim()) }; };
-  const __wreMissing = need => need.filter(x => !__wreHave.has(x) && !(/^\/\/ @connect /.test(x) && __wreHave.has('// @connect *')));
+  const __ecName = "aroflo-supplier-items", __ecVer = "0.40", __ecHave = new Set(["// @connect api.anthropic.com", "// @connect api.github.com", "// @connect api.todoist.com", "// @connect raw.githubusercontent.com", "// @connect shop.cnw.com.au", "// @connect www.tradezone.com.au", "// @grant GM_deleteValue", "// @grant GM_getValue", "// @grant GM_listValues", "// @grant GM_setValue", "// @grant GM_xmlhttpRequest", "// @grant unsafeWindow", "// @match https://office.aroflo.com/ims/Site/Service/Quotes/*", "// @match https://shop.cnw.com.au/*", "// @match https://www.tradezone.com.au/*", "// @run-at document-idle"]);
+  const __ecInfo0 = typeof GM_info != 'undefined' ? GM_info : null;
+  const __ecSay = m => { try { console.log('[live update] ' + __ecName + ': ' + m); } catch (e) {} };
+  const __ecCmp = (a, b) => { const x = String(a).split('.').map(Number), y = String(b).split('.').map(Number); for (let i = 0; i < Math.max(x.length, y.length); i++) { const d = (x[i] || 0) - (y[i] || 0); if (d) return d; } return 0; };
+  const __ecMeta = c => { const h = (String(c).match(/==UserScript==([\s\S]*?)==\/UserScript==/) || [])[1] || ''; return { v: (h.match(/^\/\/ @version\s+(\S+)/m) || [])[1] || '', need: (h.match(/^\/\/ @(grant|connect|match|exclude|include|run-at|sandbox)\s+.+$/gm) || []).map(s => s.replace(/\s+/g, ' ').trim()) }; };
+  const __ecMissing = need => need.filter(x => !__ecHave.has(x) && !(/^\/\/ @connect /.test(x) && __ecHave.has('// @connect *')));
   // the newer code, run with GM_info saying its own version
-  function __wreRun(__wreCode, __wreV) { const GM_info = __wreInfo0 ? Object.assign({}, __wreInfo0, { script: Object.assign({}, __wreInfo0.script, { version: __wreV }) }) : undefined; eval(__wreCode); }
-  function __wreLive() {
-    let c = null; try { c = GM_getValue('wreLiveCode', null); } catch (e) { return false; }
-    if (!c || !c.code || __wreCmp(c.v, __wreVer) <= 0) return false;
-    const miss = __wreMissing(__wreMeta(c.code).need); if (miss.length) { __wreSay(c.v + ' needs ' + miss.join(', ') + ', running the built in ' + __wreVer + ' till Tampermonkey updates'); return false; }
-    try { eval('0'); } catch (e) { __wreSay('this browser won\'t run live code (' + e.message + '), running the built in ' + __wreVer); return false; }
-    try { __wreRun(c.code, c.v); } catch (e) { if (e instanceof SyntaxError) { __wreSay(c.v + ' won\'t parse, running the built in ' + __wreVer); return false; } __wreSay(c.v + ' threw: ' + e.message); }
-    __wreSay('running ' + c.v + ' (built in is ' + __wreVer + ')'); return true;
+  function __ecRun(__ecCode, __ecV) { const GM_info = __ecInfo0 ? Object.assign({}, __ecInfo0, { script: Object.assign({}, __ecInfo0.script, { version: __ecV }) }) : undefined; eval(__ecCode); }
+  function __ecLive() {
+    let c = null; try { c = GM_getValue('ecLiveCode', null); } catch (e) { return false; }
+    if (!c || !c.code || __ecCmp(c.v, __ecVer) <= 0) return false;
+    const miss = __ecMissing(__ecMeta(c.code).need); if (miss.length) { __ecSay(c.v + ' needs ' + miss.join(', ') + ', running the built in ' + __ecVer + ' till Tampermonkey updates'); return false; }
+    try { eval('0'); } catch (e) { __ecSay('this browser won\'t run live code (' + e.message + '), running the built in ' + __ecVer); return false; }
+    try { __ecRun(c.code, c.v); } catch (e) { if (e instanceof SyntaxError) { __ecSay(c.v + ' won\'t parse, running the built in ' + __ecVer); return false; } __ecSay(c.v + ' threw: ' + e.message); }
+    __ecSay('running ' + c.v + ' (built in is ' + __ecVer + ')'); return true;
   }
   // keep newer code once it's been fetched (sha = the commit, or raw:<version> when it came the fallback way)
-  function __wreTake(code, sha, tag) {
+  function __ecTake(code, sha, tag) {
     if (!/==\/UserScript==/.test(code)) return;
-    const m = __wreMeta(code); if (!m.v) return;
-    if (__wreCmp(m.v, __wreVer) > 0) {
+    const m = __ecMeta(code); if (!m.v) return;
+    if (__ecCmp(m.v, __ecVer) > 0) {
       let ok = true; try { new Function(code); } catch (e) { ok = !(e instanceof SyntaxError); }
-      if (!ok) { __wreSay(m.v + ' won\'t parse, not keeping it'); GM_setValue('wreLiveSha', sha); return; }
-      const old = GM_getValue('wreLiveCode', null); if (!old || old.v != m.v) __wreSay('got ' + m.v + ', it runs on the next page load');
-      GM_setValue('wreLiveCode', { v: m.v, code, sha, at: Date.now() });
-    } else GM_setValue('wreLiveCode', null); // Tampermonkey's copy has caught up
-    GM_setValue('wreLiveSha', sha); if (tag) GM_setValue('wreLiveEtag', tag);
+      if (!ok) { __ecSay(m.v + ' won\'t parse, not keeping it'); GM_setValue('ecLiveSha', sha); return; }
+      const old = GM_getValue('ecLiveCode', null); if (!old || old.v != m.v) __ecSay('got ' + m.v + ', it runs on the next page load');
+      GM_setValue('ecLiveCode', { v: m.v, code, sha, at: Date.now() });
+    } else GM_setValue('ecLiveCode', null); // Tampermonkey's copy has caught up
+    GM_setValue('ecLiveSha', sha); if (tag) GM_setValue('ecLiveEtag', tag);
   }
   // GitHub's commit check is limited per internet address, and on 4G/5G that address is shared with lots of other
   // phones, so it can get turned away. Then the newest file is fetched straight off main instead (5/11).
-  function __wreRaw() {
-    GM_xmlhttpRequest({ method: 'GET', url: 'https://raw.githubusercontent.com/Badseed26/wre-userscripts/main/src/' + __wreName + '.js?t=' + Date.now(), timeout: 30000, headers: { 'Cache-Control': 'no-cache' }, onload: q => {
-      try { if (q.status != 200) return; const v = __wreMeta(q.responseText || '').v; if (v) __wreTake(q.responseText, 'raw:' + v); } catch (e) {} } });
+  function __ecRaw() {
+    GM_xmlhttpRequest({ method: 'GET', url: 'https://raw.githubusercontent.com/Badseed26/ec-userscripts/main/src/' + __ecName + '.js?t=' + Date.now(), timeout: 30000, headers: { 'Cache-Control': 'no-cache' }, onload: q => {
+      try { if (q.status != 200) return; const v = __ecMeta(q.responseText || '').v; if (v) __ecTake(q.responseText, 'raw:' + v); } catch (e) {} } });
   }
-  function __wreCheck() {
+  function __ecCheck() {
     try {
-      if (Date.now() - GM_getValue('wreLiveAt', 0) < 2 * 60e3) return; GM_setValue('wreLiveAt', Date.now());
-      const et = GM_getValue('wreLiveEtag', ''), hd = { Accept: 'application/vnd.github+json' }; if (et) hd['If-None-Match'] = et;
-      GM_xmlhttpRequest({ method: 'GET', url: 'https://api.github.com/repos/Badseed26/wre-userscripts/commits/main', headers: hd, timeout: 20000, onerror: __wreRaw, ontimeout: __wreRaw, onload: r => {
+      if (Date.now() - GM_getValue('ecLiveAt', 0) < 2 * 60e3) return; GM_setValue('ecLiveAt', Date.now());
+      const et = GM_getValue('ecLiveEtag', ''), hd = { Accept: 'application/vnd.github+json' }; if (et) hd['If-None-Match'] = et;
+      GM_xmlhttpRequest({ method: 'GET', url: 'https://api.github.com/repos/Badseed26/ec-userscripts/commits/main', headers: hd, timeout: 20000, onerror: __ecRaw, ontimeout: __ecRaw, onload: r => {
         try {
           if (r.status == 304) return; // nothing new, and it doesn't count against GitHub's limit
-          if (r.status != 200) { __wreSay('GitHub said ' + r.status + ', checking the file directly'); return __wreRaw(); }
+          if (r.status != 200) { __ecSay('GitHub said ' + r.status + ', checking the file directly'); return __ecRaw(); }
           const sha = (JSON.parse(r.responseText) || {}).sha, tag = (((r.responseHeaders || '').match(/^etag:\s*(.+)$/mi) || [])[1] || '').trim();
-          if (!sha) return; if (sha == GM_getValue('wreLiveSha', '')) { if (tag) GM_setValue('wreLiveEtag', tag); return; }
-          GM_xmlhttpRequest({ method: 'GET', url: 'https://raw.githubusercontent.com/Badseed26/wre-userscripts/' + sha + '/src/' + __wreName + '.js', timeout: 30000, onload: q => {
-            try { if (q.status == 200) __wreTake(q.responseText || '', sha, tag); } catch (e) {} } });
+          if (!sha) return; if (sha == GM_getValue('ecLiveSha', '')) { if (tag) GM_setValue('ecLiveEtag', tag); return; }
+          GM_xmlhttpRequest({ method: 'GET', url: 'https://raw.githubusercontent.com/Badseed26/ec-userscripts/' + sha + '/src/' + __ecName + '.js', timeout: 30000, onload: q => {
+            try { if (q.status == 200) __ecTake(q.responseText || '', sha, tag); } catch (e) {} } });
         } catch (e) {} } });
     } catch (e) {}
   }
-  if (window.top === window.self) { __wreCheck(); setInterval(__wreCheck, 2 * 60e3 + 5000); }
-  if (__wreLive()) return;
-  // ---------- the built in copy (src/aroflo-supplier-items.js at 0.39) ----------
+  if (window.top === window.self) { __ecCheck(); setInterval(__ecCheck, 2 * 60e3 + 5000); }
+  if (__ecLive()) return;
+  // ---------- the built in copy (src/aroflo-supplier-items.js at 0.40) ----------
+
+// ---------- one off (18/11/2026): moves this device's saved data over from the old names. Take this block out once every device has run it ----------
+try {
+  const nn = k => k.replace(/wre/g, 'ec').replace(/Wre/g, 'Ec').replace(/WRE/g, 'EC'), old = /(^|[^A-Za-z])(wre|Wre|WRE)/;
+  if (typeof GM_listValues == 'function') for (const k of GM_listValues()) if (old.test(k)) { const n = nn(k); if (GM_getValue(n, undefined) === undefined) GM_setValue(n, GM_getValue(k)); GM_deleteValue(k); }
+  if (/aroflo|ambrose|outlook|cnw|tradezone/.test(location.hostname)) for (const k of Object.keys(localStorage)) if (old.test(k)) { const n = nn(k); if (localStorage.getItem(n) == null) localStorage.setItem(n, localStorage.getItem(k)); localStorage.removeItem(k); }
+} catch (e) {}
 
 (function () {
   'use strict';
@@ -117,7 +126,7 @@
     const pwBox = () => [...document.querySelectorAll('input[type=password]')].find(x => x.offsetParent);
     const loggedIn = () => !pwBox() && (sup == 'CNW' ? document.body && !document.body.classList.contains('logged-out') : /log ?out|sign ?out/i.test((document.body && document.body.innerText || '').slice(0, 20000)));
     let bar;
-    const say = t => { if (!bar) { bar = document.createElement('div'); bar.style.cssText = 'position:fixed;left:8px;right:8px;top:8px;z-index:2147483647;background:#4a4541;color:#fff;border-left:5px solid #e8731a;border-radius:10px;padding:12px 14px;font:600 15px -apple-system,Segoe UI,sans-serif;box-shadow:0 4px 14px #0005'; document.body.appendChild(bar); } bar.textContent = 'WRE: ' + t; };
+    const say = t => { if (!bar) { bar = document.createElement('div'); bar.style.cssText = 'position:fixed;left:8px;right:8px;top:8px;z-index:2147483647;background:#4a4541;color:#fff;border-left:5px solid #e8731a;border-radius:10px;padding:12px 14px;font:600 15px -apple-system,Segoe UI,sans-serif;box-shadow:0 4px 14px #0005'; document.body.appendChild(bar); } bar.textContent = 'EC: ' + t; };
     let finished = false, waited = 0;
     const done = () => {
       if (finished) return; finished = true;
@@ -379,7 +388,7 @@
 
   // ---------- favourites, recents, price history and dropped matches (synced through Todoist) ----------
   // Kept in this device's Tampermonkey and, with a Todoist token saved under Logins, merged into the comments of the
-  // "* Supplier items data" task in WRE job tracker > Inbox filer settings, so the phone and the PC match.
+  // "* Supplier items data" task in job tracker > Inbox filer settings, so the phone and the PC match.
   const DAY = 864e5, today = () => Math.floor(Date.now() / DAY);
   const dmy = d => { const x = new Date(d * DAY); return x.getUTCDate() + '/' + (x.getUTCMonth() + 1); };
   const keyOf = it => (it.sup == 'CNW' ? 'C' : 'T') + ':' + String(it.code || it.part || '').toUpperCase();
@@ -933,7 +942,7 @@ ${sw ? `<label class="tk"><input type="checkbox" data-sw="${n}"> Swap to ${esc(p
   const brief = x => [x.code, x.name, x.uom || '', x.price ? x.price.toFixed(2) : 'no price'].join(' | ');
   const usedBefore = x => favOn(x) || histOf(x).length > 0 || !!partMap()[String(x.code).toUpperCase()];
 
-  const READ_SYS = `You work out the materials for an Australian electrician's quote from the job notes (Wired Rite Electrical, Queensland).
+  const READ_SYS = `You work out the materials for an Australian electrician's quote from the job notes (an electrical contractor in Queensland).
 Read every source. Ethan's own notes win when sources clash. The lads' notes are what they found on site.
 List the main gear only, grouped into folders the way Ethan lays out a quote: one folder per customer facing group of work, e.g. "Shed Works - All", "Other Electrical Works", "Solar Replacement Materials". Don't add Labour or Misc. mat lines (the script adds those).
 Quantities in the units Ethan counts in (his rules below). Round up sensibly. "unit" is one of: each, m, roll, length, coil (a roll of TPS is 100m unless the notes say otherwise, a length of conduit is 4m).
@@ -1253,100 +1262,100 @@ ${x ? `<div class="mt">Ordering ${esc(x.sup)} ${money(x.price)}${x.uom ? '/' + e
   function css() {
     const s = document.createElement('style');
     s.textContent = `
-#wre-sup{position:fixed;right:10px;bottom:10px;z-index:2147483646;width:min(440px,94vw);max-height:82vh;display:none;flex-direction:column;background:#fff;border:1px solid #ccc;border-radius:12px;box-shadow:0 6px 24px #0004;font:14px -apple-system,Segoe UI,sans-serif;color:#222}
-#wre-sup .hd{display:flex;align-items:center;gap:6px;padding:10px;background:${GREY};color:#fff;border-radius:12px 12px 0 0}
-#wre-sup .hd b{flex:1}
-#wre-sup .hd button{background:none;border:0;color:#fff;font-size:20px;line-height:1}
-#wre-sup .sr{display:flex;gap:6px;padding:10px 10px 4px}
-#wre-sup .sr input{flex:1;font-size:16px;padding:8px;border:1px solid #bbb;border-radius:8px}
-#wre-sup .btn{background:${ORANGE};color:#fff;border:0;border-radius:8px;padding:8px 12px;font:600 14px inherit}
-#wre-sup .opt{padding:0 10px 6px;font-size:13px;color:#555;display:flex;gap:12px;align-items:center}
-#wre-sup .br label{display:flex;align-items:center;gap:4px;flex:1;min-width:0}
-#wre-sup .br input{flex:1;min-width:0;font-size:16px;padding:5px 6px;border:1px solid #bbb;border-radius:6px}
-#wre-sup .sug{display:none;margin:-2px 10px 6px;border:1px solid #ccc;border-radius:8px;max-height:220px;overflow:auto;background:#fff}
-#wre-sup .sug div{padding:9px 10px;border-bottom:1px solid #eee}
-#wre-sup .sug div span{color:#888;font-size:12px}
-#wre-sup .sug .none{color:#888;font-size:13px}
-#wre-sup .lg{margin:0 10px 8px;padding:10px;border:1px solid #e3e0dd;border-radius:8px;background:#faf9f8}
-#wre-sup .lgrow{display:flex;gap:6px;align-items:center;margin-bottom:6px}
-#wre-sup .lgrow b{width:78px;flex:none;font-size:13px}
-#wre-sup .lgrow input{flex:1;min-width:0;font-size:16px;padding:6px;border:1px solid #bbb;border-radius:6px}
-#wre-sup .opt .dbg{margin-left:10px}
-#wre-sup .msg{padding:0 10px 6px;font-size:13px;color:#555}
-#wre-sup .ls{overflow:auto;padding:0 10px 10px;flex:1;min-height:0;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
-#wre-sup.mob{right:auto;bottom:auto;max-height:none;border:0;border-radius:0;box-shadow:none;font-size:15px;transform-origin:0 0}
-#wre-sup.mob .hd{border-radius:0;padding:12px 10px}
-#wre-sup.mob .hd b{font-size:17px}
-#wre-sup.mob .hd .pill{font-size:14px;padding:7px 12px}
-#wre-sup.mob .hd .x{font-size:28px;padding:0 6px}
-#wre-sup.mob .btn{padding:10px 14px;font-size:15px}
-#wre-sup.mob .sr input{font-size:17px;padding:10px}
-#wre-sup.mob .opt{flex-wrap:wrap;row-gap:6px;font-size:14px}
-#wre-sup.mob .opt input[type=checkbox]{width:20px;height:20px}
-#wre-sup.mob .ad input{width:80px;padding:9px}
-#wre-sup.mob .star{font-size:26px}
-#wre-sup.mob .th{width:64px;height:64px}
-#wre-sup.mob .mt{font-size:13px}
-#wre-sup.mob .tk{font-size:15px;padding:4px 0}
-#wre-sup.mob .tk input{width:22px;height:22px}
-#wre-sup.mob .grp{padding:11px 12px}
-#wre-sup.mob .ls{padding-bottom:40px}
-#wre-sup .grp{display:flex;align-items:center;gap:8px;margin:12px 0 6px;padding:8px 10px;background:#f3f1ef;border-left:4px solid ${ORANGE};border-radius:6px;font:700 16px inherit;color:#222;cursor:pointer;user-select:none}
-#wre-sup .grp .ct{font:600 12px inherit;color:#666;flex:1}
-#wre-sup .grp .ar{font-size:14px;color:${GREY}}
-#wre-sup .gb.shut{display:none}
-#wre-sup .row{display:flex;gap:8px}
-#wre-sup .th{width:52px;height:52px;flex:none;border:1px solid #e3e0dd;border-radius:6px;object-fit:contain;background:#fff}
-#wre-sup .th.none{display:flex;align-items:center;justify-content:center;font-size:10px;color:#aaa}
-#wre-sup .bd{flex:1;min-width:0}
-#wre-sup .it{border:1px solid #e3e0dd;border-radius:8px;padding:8px;margin-bottom:6px}
-#wre-sup .nm{font-weight:600}
-#wre-sup .mt{font-size:12px;color:#666;margin-top:2px}
-#wre-sup .pr{font-weight:700;color:#222}
-#wre-sup .ad{display:flex;gap:6px;align-items:center;margin-top:6px}
-#wre-sup .ad input{width:70px;font-size:16px;padding:6px;border:1px solid #bbb;border-radius:6px}
-#wre-sup .warn{color:#b3261e}
-#wre-sup .grn,#wre-sup .hs.down{color:#1e7b34}
-#wre-sup .hs{font-size:12px;margin-top:4px;cursor:pointer}
-#wre-sup .hs.up{color:#b3261e}
-#wre-sup .hl{font-size:12px;color:#555;margin:2px 0 0 14px}
-#wre-sup .amb{color:#a35a00}
-#wre-sup .cheap{background:#1e7b34;color:#fff;border-radius:8px;padding:1px 6px;font:700 11px inherit}
-#wre-sup .cmp{font-size:12px;margin-top:4px;padding:6px 8px;background:#f6f4f2;border-radius:6px}
-#wre-sup .cmp a{margin-left:6px;text-decoration:none;font-weight:700}
-#wre-sup .nm{display:flex;gap:6px;align-items:flex-start}
-#wre-sup .nm span{flex:1}
-#wre-sup .star{background:none;border:0;font-size:20px;line-height:1;color:${ORANGE};padding:0 2px}
-#wre-sup .sub{font:700 12px inherit;color:#666;margin:8px 0 4px;text-transform:uppercase}
-#wre-sup .tk{display:flex;gap:8px;align-items:center;margin-top:6px;font-size:13px}
-#wre-sup .tk input{width:18px;height:18px}
-#wre-sup .alt{margin-top:6px}
-#wre-sup .tag{display:inline-block;font:700 11px inherit;font-size:11px;font-weight:700;padding:1px 6px;border-radius:8px;background:#e9e6e3;color:#444;margin-left:2px}
-#wre-sup .tag.inf{background:#fde3cc;color:#8a4300}
-#wre-sup .tag.mix{background:#e2ecf8;color:#24508a}
-#wre-sup .bsrc{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:13px;margin:8px 0}
-#wre-sup .bsrc input{width:18px;height:18px;vertical-align:middle}
-#wre-sup .bmine,#wre-sup .rtext{width:100%;box-sizing:border-box;font-size:16px;padding:8px;border:1px solid #bbb;border-radius:8px;font-family:inherit}
-#wre-sup .cb{display:flex;gap:6px;margin-top:6px;flex-wrap:wrap}
-#wre-sup .btn.sm{padding:6px 10px;font-size:13px}
-#wre-sup .it{transition:box-shadow .3s}
-#wre-sup .it.flash{box-shadow:0 0 0 3px ${ORANGE}}
-#wre-sup .pg{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:4px 0 10px}
-#wre-sup .pg span{font-weight:600;color:#555}
-#wre-sup .pg .btn[disabled]{opacity:.35}
-#wre-sup .tgt{padding:0 10px 4px}
-#wre-sup .hd .pill{font-size:13px;font-weight:600;border:1px solid #fff8;border-radius:14px;padding:5px 10px}
-#wre-sup .out{border:1px solid #f0c9a6;background:#fff6ee;border-radius:8px;padding:10px;margin-bottom:6px}
-#wre-sup .out b{display:block;margin-bottom:4px}
-#wre-sup .out .btns{display:flex;gap:6px;margin-top:8px}
-#wre-sup .btn.grey{background:${GREY}}
-#wre-sup a{color:${ORANGE}}
-.wre-sup-open{margin-left:4px}`;
+#ec-sup{position:fixed;right:10px;bottom:10px;z-index:2147483646;width:min(440px,94vw);max-height:82vh;display:none;flex-direction:column;background:#fff;border:1px solid #ccc;border-radius:12px;box-shadow:0 6px 24px #0004;font:14px -apple-system,Segoe UI,sans-serif;color:#222}
+#ec-sup .hd{display:flex;align-items:center;gap:6px;padding:10px;background:${GREY};color:#fff;border-radius:12px 12px 0 0}
+#ec-sup .hd b{flex:1}
+#ec-sup .hd button{background:none;border:0;color:#fff;font-size:20px;line-height:1}
+#ec-sup .sr{display:flex;gap:6px;padding:10px 10px 4px}
+#ec-sup .sr input{flex:1;font-size:16px;padding:8px;border:1px solid #bbb;border-radius:8px}
+#ec-sup .btn{background:${ORANGE};color:#fff;border:0;border-radius:8px;padding:8px 12px;font:600 14px inherit}
+#ec-sup .opt{padding:0 10px 6px;font-size:13px;color:#555;display:flex;gap:12px;align-items:center}
+#ec-sup .br label{display:flex;align-items:center;gap:4px;flex:1;min-width:0}
+#ec-sup .br input{flex:1;min-width:0;font-size:16px;padding:5px 6px;border:1px solid #bbb;border-radius:6px}
+#ec-sup .sug{display:none;margin:-2px 10px 6px;border:1px solid #ccc;border-radius:8px;max-height:220px;overflow:auto;background:#fff}
+#ec-sup .sug div{padding:9px 10px;border-bottom:1px solid #eee}
+#ec-sup .sug div span{color:#888;font-size:12px}
+#ec-sup .sug .none{color:#888;font-size:13px}
+#ec-sup .lg{margin:0 10px 8px;padding:10px;border:1px solid #e3e0dd;border-radius:8px;background:#faf9f8}
+#ec-sup .lgrow{display:flex;gap:6px;align-items:center;margin-bottom:6px}
+#ec-sup .lgrow b{width:78px;flex:none;font-size:13px}
+#ec-sup .lgrow input{flex:1;min-width:0;font-size:16px;padding:6px;border:1px solid #bbb;border-radius:6px}
+#ec-sup .opt .dbg{margin-left:10px}
+#ec-sup .msg{padding:0 10px 6px;font-size:13px;color:#555}
+#ec-sup .ls{overflow:auto;padding:0 10px 10px;flex:1;min-height:0;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
+#ec-sup.mob{right:auto;bottom:auto;max-height:none;border:0;border-radius:0;box-shadow:none;font-size:15px;transform-origin:0 0}
+#ec-sup.mob .hd{border-radius:0;padding:12px 10px}
+#ec-sup.mob .hd b{font-size:17px}
+#ec-sup.mob .hd .pill{font-size:14px;padding:7px 12px}
+#ec-sup.mob .hd .x{font-size:28px;padding:0 6px}
+#ec-sup.mob .btn{padding:10px 14px;font-size:15px}
+#ec-sup.mob .sr input{font-size:17px;padding:10px}
+#ec-sup.mob .opt{flex-wrap:wrap;row-gap:6px;font-size:14px}
+#ec-sup.mob .opt input[type=checkbox]{width:20px;height:20px}
+#ec-sup.mob .ad input{width:80px;padding:9px}
+#ec-sup.mob .star{font-size:26px}
+#ec-sup.mob .th{width:64px;height:64px}
+#ec-sup.mob .mt{font-size:13px}
+#ec-sup.mob .tk{font-size:15px;padding:4px 0}
+#ec-sup.mob .tk input{width:22px;height:22px}
+#ec-sup.mob .grp{padding:11px 12px}
+#ec-sup.mob .ls{padding-bottom:40px}
+#ec-sup .grp{display:flex;align-items:center;gap:8px;margin:12px 0 6px;padding:8px 10px;background:#f3f1ef;border-left:4px solid ${ORANGE};border-radius:6px;font:700 16px inherit;color:#222;cursor:pointer;user-select:none}
+#ec-sup .grp .ct{font:600 12px inherit;color:#666;flex:1}
+#ec-sup .grp .ar{font-size:14px;color:${GREY}}
+#ec-sup .gb.shut{display:none}
+#ec-sup .row{display:flex;gap:8px}
+#ec-sup .th{width:52px;height:52px;flex:none;border:1px solid #e3e0dd;border-radius:6px;object-fit:contain;background:#fff}
+#ec-sup .th.none{display:flex;align-items:center;justify-content:center;font-size:10px;color:#aaa}
+#ec-sup .bd{flex:1;min-width:0}
+#ec-sup .it{border:1px solid #e3e0dd;border-radius:8px;padding:8px;margin-bottom:6px}
+#ec-sup .nm{font-weight:600}
+#ec-sup .mt{font-size:12px;color:#666;margin-top:2px}
+#ec-sup .pr{font-weight:700;color:#222}
+#ec-sup .ad{display:flex;gap:6px;align-items:center;margin-top:6px}
+#ec-sup .ad input{width:70px;font-size:16px;padding:6px;border:1px solid #bbb;border-radius:6px}
+#ec-sup .warn{color:#b3261e}
+#ec-sup .grn,#ec-sup .hs.down{color:#1e7b34}
+#ec-sup .hs{font-size:12px;margin-top:4px;cursor:pointer}
+#ec-sup .hs.up{color:#b3261e}
+#ec-sup .hl{font-size:12px;color:#555;margin:2px 0 0 14px}
+#ec-sup .amb{color:#a35a00}
+#ec-sup .cheap{background:#1e7b34;color:#fff;border-radius:8px;padding:1px 6px;font:700 11px inherit}
+#ec-sup .cmp{font-size:12px;margin-top:4px;padding:6px 8px;background:#f6f4f2;border-radius:6px}
+#ec-sup .cmp a{margin-left:6px;text-decoration:none;font-weight:700}
+#ec-sup .nm{display:flex;gap:6px;align-items:flex-start}
+#ec-sup .nm span{flex:1}
+#ec-sup .star{background:none;border:0;font-size:20px;line-height:1;color:${ORANGE};padding:0 2px}
+#ec-sup .sub{font:700 12px inherit;color:#666;margin:8px 0 4px;text-transform:uppercase}
+#ec-sup .tk{display:flex;gap:8px;align-items:center;margin-top:6px;font-size:13px}
+#ec-sup .tk input{width:18px;height:18px}
+#ec-sup .alt{margin-top:6px}
+#ec-sup .tag{display:inline-block;font:700 11px inherit;font-size:11px;font-weight:700;padding:1px 6px;border-radius:8px;background:#e9e6e3;color:#444;margin-left:2px}
+#ec-sup .tag.inf{background:#fde3cc;color:#8a4300}
+#ec-sup .tag.mix{background:#e2ecf8;color:#24508a}
+#ec-sup .bsrc{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:13px;margin:8px 0}
+#ec-sup .bsrc input{width:18px;height:18px;vertical-align:middle}
+#ec-sup .bmine,#ec-sup .rtext{width:100%;box-sizing:border-box;font-size:16px;padding:8px;border:1px solid #bbb;border-radius:8px;font-family:inherit}
+#ec-sup .cb{display:flex;gap:6px;margin-top:6px;flex-wrap:wrap}
+#ec-sup .btn.sm{padding:6px 10px;font-size:13px}
+#ec-sup .it{transition:box-shadow .3s}
+#ec-sup .it.flash{box-shadow:0 0 0 3px ${ORANGE}}
+#ec-sup .pg{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:4px 0 10px}
+#ec-sup .pg span{font-weight:600;color:#555}
+#ec-sup .pg .btn[disabled]{opacity:.35}
+#ec-sup .tgt{padding:0 10px 4px}
+#ec-sup .hd .pill{font-size:13px;font-weight:600;border:1px solid #fff8;border-radius:14px;padding:5px 10px}
+#ec-sup .out{border:1px solid #f0c9a6;background:#fff6ee;border-radius:8px;padding:10px;margin-bottom:6px}
+#ec-sup .out b{display:block;margin-bottom:4px}
+#ec-sup .out .btns{display:flex;gap:6px;margin-top:8px}
+#ec-sup .btn.grey{background:${GREY}}
+#ec-sup a{color:${ORANGE}}
+.ec-sup-open{margin-left:4px}`;
     document.head.appendChild(s);
   }
   function build() {
     css();
-    box = document.createElement('div'); box.id = 'wre-sup';
+    box = document.createElement('div'); box.id = 'ec-sup';
     box.innerHTML = `<div class="hd"><b>Supplier</b><button class="pill fv" title="Favourites and recents">★</button><button class="pill bld" title="Build the gear list from the notes">Build</button><button class="pill rpc" title="Reprice this quote">Reprice</button><button class="pill ord" title="Order this quote">Order</button><button class="x" title="Close">×</button></div>
 <div class="sr"><input type="search" placeholder="Search CNW and Tradezone" enterkeyhint="search"><button class="btn">Search</button></div>
 <div class="opt"><label><input type="checkbox" data-s="CNW" checked> CNW</label><label><input type="checkbox" data-s="Tradezone" checked> Tradezone</label><a href="#" class="lgn" style="margin-left:auto">Logins</a><a href="#" class="dbg">Copy debug</a></div>
@@ -1544,10 +1553,10 @@ ${x ? `<div class="mt">Ordering ${esc(x.sup)} ${money(x.price)}${x.uom ? '/' + e
   // ---------- the Supplier button next to Add Line Item ----------
   function place() {
     document.querySelectorAll('button').forEach(b => {
-      if (!/^\s*Add Line Item\s*$/i.test(b.textContent) || b.dataset.wreSup) return;
-      b.dataset.wreSup = '1';
+      if (!/^\s*Add Line Item\s*$/i.test(b.textContent) || b.dataset.ecSup) return;
+      b.dataset.ecSup = '1';
       const s = document.createElement('button');
-      s.type = 'button'; s.textContent = 'Supplier'; s.className = (b.className || '') + ' wre-sup-open';
+      s.type = 'button'; s.textContent = 'Supplier'; s.className = (b.className || '') + ' ec-sup-open';
       s.style.background = ORANGE; s.style.borderColor = ORANGE;
       s.onclick = e => { e.preventDefault(); e.stopPropagation(); open(b); };
       b.after(s);
@@ -1555,8 +1564,8 @@ ${x ? `<div class="mt">Ordering ${esc(x.sup)} ${money(x.price)}${x.uom ? '/' + e
   }
   // ---------- bridge for Claude's quote skill (stage 3 pricing) ----------
   // The skill runs plain page scripts, which can't reach this script's supplier requests, so they talk by events:
-  //   document.dispatchEvent(new CustomEvent('wre-sup-call', {detail: JSON.stringify({id, fn, args})}))
-  // and the answer comes back as a 'wre-sup-reply' event with detail JSON {id, r} or {id, err}.
+  //   document.dispatchEvent(new CustomEvent('ec-sup-call', {detail: JSON.stringify({id, fn, args})}))
+  // and the answer comes back as a 'ec-sup-reply' event with detail JSON {id, r} or {id, err}.
   //   ping()                      -> {v} the script's version
   //   search(term, ['CNW'])       -> [{sup, code, name, uom, price, branch, national, stock, note}] or {signedOut:'CNW'}
   //   lines()                     -> [{i, item, part, qty, value, depth}] every line on the quote, in order
@@ -1606,11 +1615,11 @@ ${x ? `<div class="mt">Ordering ${esc(x.sup)} ${money(x.price)}${x.uom ? '/' + e
       return { ok: Math.abs(Number(val.value) - Number(v)) < 0.005, value: val.value, item: L.inp.value };
     },
   };
-  document.addEventListener('wre-sup-call', async e => {
+  document.addEventListener('ec-sup-call', async e => {
     let d; try { d = JSON.parse(e.detail); } catch (x) { return; }
     let rep_;
     try { rep_ = { id: d.id, r: await API[d.fn](...(d.args || [])) }; } catch (x) { rep_ = { id: d.id, err: String(x.message || x) }; }
-    document.dispatchEvent(new CustomEvent('wre-sup-reply', { detail: JSON.stringify(rep_) }));
+    document.dispatchEvent(new CustomEvent('ec-sup-reply', { detail: JSON.stringify(rep_) }));
   });
 
   if (!/viewexist=1/.test(location.search) && !document.querySelector('#newQuoteContainer')) return;
@@ -1618,7 +1627,7 @@ ${x ? `<div class="mt">Ordering ${esc(x.sup)} ${money(x.price)}${x.uom ? '/' + e
   new MutationObserver(() => place()).observe(document.body, { childList: true, subtree: true });
   // an accepted quote has no Add Line Item, so give it its own Order button
   setTimeout(() => {
-    if (document.querySelector('.wre-sup-open') || !document.querySelector('th.q-col-partNo')) return;
+    if (document.querySelector('.ec-sup-open') || !document.querySelector('th.q-col-partNo')) return;
     const o = document.createElement('button'); o.type = 'button'; o.textContent = 'Order parts';
     o.style.cssText = 'position:fixed;left:10px;bottom:10px;z-index:2147483645;background:' + ORANGE + ';color:#fff;border:0;border-radius:18px;padding:9px 14px;font:600 14px -apple-system,Segoe UI,sans-serif;box-shadow:0 2px 8px #0004';
     o.onclick = () => orderView(); document.body.appendChild(o);

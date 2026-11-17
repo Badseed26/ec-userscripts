@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""WRE job profitability report. Usage: python3 -I wre_report.py BUNDLE.txt CONFIG.json OUTDIR
-BUNDLE is the text file from the WRE month pull script (0.7 or later). CONFIG may be {} (see SKILL.md)."""
+"""Job profitability report. Usage: python3 -I ec_job_report.py BUNDLE.txt CONFIG.json OUTDIR
+BUNDLE is the text file from the EC month pull script (0.7 or later). CONFIG may be {} (see SKILL.md).
+CONFIG "business" is the business name printed on the report, e.g. {"business": "Acme Electrical"}."""
 import sys, re, json, os, math, datetime as dt, collections
 import matplotlib; matplotlib.use('Agg')
 import matplotlib.pyplot as plt
@@ -13,6 +14,8 @@ from reportlab.platypus import BaseDocTemplate, PageTemplate, Frame, Paragraph, 
 bundle, cfgp, outdir = sys.argv[1], sys.argv[2], sys.argv[3]
 C = json.load(open(cfgp)) if os.path.exists(cfgp) else {}
 os.makedirs(outdir, exist_ok=True)
+BIZ = str(C.get('business') or '').strip()
+BIZ_SHORT = ''.join(w[0] for w in BIZ.split() if w[:1].isalpha()).upper()
 L = open(bundle, encoding='utf-8').read().split('\n')
 num = lambda s: float(re.sub(r'[^0-9.\-]', '', s) or 0)
 MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December']
@@ -28,7 +31,7 @@ def end_of(i): return min([v for v in sec.values() if v > i] + [len(L)])
 pulled = re.search(r'pulled (\d{4}-\d\d-\d\d)', L[0]).group(1)
 iI, iJ, iD = find('AROFLO INVOICES'), find('JOBS behind'), find('JOB DETAIL')
 iTO, iCO = find('TRADEZONE orders opened'), find('CNW orders opened')
-if iI is None or iJ is None or iD is None: sys.exit('This bundle has no invoices, jobs or job detail in it. It needs the WRE month pull script at 0.7 or later, with AroFlo ticked.')
+if iI is None or iJ is None or iD is None: sys.exit('This bundle has no invoices, jobs or job detail in it. It needs the EC month pull script at 0.7 or later, with AroFlo ticked.')
 head = [h.strip() for h in L[iI + 1].split(' | ')]
 col = {h: n for n, h in enumerate(head)}
 inv = []
@@ -277,12 +280,12 @@ def tiles(items):
     t.setStyle(TableStyle([('BACKGROUND', (0, 0), (-1, -1), WASH), ('LINEBEFORE', (1, 0), (-1, -1), 3, colors.white), ('TOPPADDING', (0, 0), (-1, -1), 9), ('BOTTOMPADDING', (0, 0), (-1, -1), 9), ('LEFTPADDING', (0, 0), (-1, -1), 9), ('VALIGN', (0, 0), (-1, -1), 'TOP')])); return t
 def page(c, doc):
     c.saveState(); c.setFillColor(ORc); c.rect(0, H - 7 * mm, W, 7 * mm, stroke=0, fill=1); c.setFont('Helvetica', 8); c.setFillColor(MUTc)
-    c.drawString(LM, 10 * mm, f'Wired Rite Electrical  |  Job Profitability, {period}  |  All figures exclude GST'); c.drawRightString(W - LM, 10 * mm, f'Page {doc.page}'); c.restoreState()
-pdf = os.path.join(outdir, f'WRE-Job-Profitability-{A[:3]}-{B[:3]}-{cut.year}.pdf')
-doc = BaseDocTemplate(pdf, pagesize=A4, leftMargin=LM, rightMargin=LM, topMargin=17 * mm, bottomMargin=18 * mm, title=f'Wired Rite Electrical: Job Profitability, {period}', author='Wired Rite Electrical')
+    c.drawString(LM, 10 * mm, (BIZ + '  |  ' if BIZ else '') + f'Job Profitability, {period}  |  All figures exclude GST'); c.drawRightString(W - LM, 10 * mm, f'Page {doc.page}'); c.restoreState()
+pdf = os.path.join(outdir, (BIZ_SHORT + '-' if BIZ_SHORT else '') + f'Job-Profitability-{A[:3]}-{B[:3]}-{cut.year}.pdf')
+doc = BaseDocTemplate(pdf, pagesize=A4, leftMargin=LM, rightMargin=LM, topMargin=17 * mm, bottomMargin=18 * mm, title=(BIZ + ': ' if BIZ else '') + f'Job Profitability, {period}', author=BIZ)
 doc.addPageTemplates([PageTemplate(id='p', frames=[Frame(LM, 18 * mm, W - 2 * LM, H - 35 * mm, id='f', leftPadding=0, rightPadding=0, topPadding=0, bottomPadding=0)], onPage=page)])
 cutw = f'{cut.day} {B}'
-S = [Paragraph('Wired Rite Electrical', H1), Paragraph(f'Job Profitability: {period}', SUB),
+S = [Paragraph(BIZ or 'Job Profitability', H1), Paragraph(f'Job Profitability: {period}', SUB),
      tiles([(d(inr), f'Invoiced {span} (ex GST)'), (f'{len(jobs)}', 'Jobs invoiced'), (f'{pct:.0f}%', 'Margin after materials and labour'), (d(round(permonth, -2)), 'Average margin per month')]),
      Spacer(1, 8), Paragraph('Summary', H2)]
 S += bullets([f'Jobs invoiced from {span} returned a margin of about {pct:.0f}% after materials and labour, with labour costed at ${R} per hour.',

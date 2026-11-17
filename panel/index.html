@@ -198,7 +198,7 @@
 <div class="sheet-bg" id="tokBg">
   <div class="sheet setup" role="dialog" aria-modal="true" aria-labelledby="tokTitle">
     <h2 id="tokTitle">Connect Todoist</h2>
-    <p>The lads' notes, photos and timesheets come from the WRE Calendar NPT issues in Todoist. Paste your API token from Todoist: Settings, Integrations, Developer. It's only saved on the PC.</p>
+    <p>The lads' notes, photos and timesheets come from the EC Calendar NPT issues in Todoist. Paste your API token from Todoist: Settings, Integrations, Developer. It's only saved on the PC.</p>
     <label for="tokIn" class="sub" style="text-align:left">API token</label>
     <input id="tokIn" type="password" autocomplete="off" autocapitalize="off" spellcheck="false">
     <button class="btn light" id="tokSave">Save</button>
@@ -382,7 +382,7 @@
     });
   }
 
-  // ---------- NPT: notes, photos, timesheets still owed (WRE Calendar NPT issues in Todoist) ----------
+  // ---------- NPT: notes, photos, timesheets still owed (EC Calendar NPT issues in Todoist) ----------
   var npt = null, openJob = null, busyJob = null;
   var WDS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
   function dayLbl(v) { var p = v.split("-"), d = new Date(+p[0], +p[1] - 1, +p[2]); return WDS[d.getDay()] + " " + d.getDate() + "/" + (d.getMonth() + 1); }

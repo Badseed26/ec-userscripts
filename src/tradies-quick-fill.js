@@ -1,15 +1,24 @@
 // ==UserScript==
 // @name         Tradies Web quick fill (Ambrose)
-// @namespace    wre
-// @version      1.9
+// @namespace    ec
+// @version      1.10
 // @description  One-click site sign-in (PSEA NA first 4, Yes rest, confirm, Done, your saved signature, Sign In) and electrical report defaults (Met With Insured, Electrician, licence 76530). Never touches report Save or Submit.
 // @match        https://tradies.ambrosebuilding.com.au/*
 // @grant        GM_getValue
 // @grant        GM_setValue
+// @grant        GM_listValues
+// @grant        GM_deleteValue
 // @run-at       document-idle
-// @updateURL    https://raw.githubusercontent.com/Badseed26/wre-userscripts/main/tradies-quick-fill.user.js
-// @downloadURL  https://raw.githubusercontent.com/Badseed26/wre-userscripts/main/tradies-quick-fill.user.js
+// @updateURL    https://raw.githubusercontent.com/Badseed26/ec-userscripts/main/tradies-quick-fill.user.js
+// @downloadURL  https://raw.githubusercontent.com/Badseed26/ec-userscripts/main/tradies-quick-fill.user.js
 // ==/UserScript==
+
+// ---------- one off (18/11/2026): moves this device's saved data over from the old names. Take this block out once every device has run it ----------
+try {
+  const nn = k => k.replace(/wre/g, 'ec').replace(/Wre/g, 'Ec').replace(/WRE/g, 'EC'), old = /(^|[^A-Za-z])(wre|Wre|WRE)/;
+  if (typeof GM_listValues == 'function') for (const k of GM_listValues()) if (old.test(k)) { const n = nn(k); if (GM_getValue(n, undefined) === undefined) GM_setValue(n, GM_getValue(k)); GM_deleteValue(k); }
+  if (/aroflo|ambrose|outlook|cnw|tradezone/.test(location.hostname)) for (const k of Object.keys(localStorage)) if (old.test(k)) { const n = nn(k); if (localStorage.getItem(n) == null) localStorage.setItem(n, localStorage.getItem(k)); localStorage.removeItem(k); }
+} catch (e) {}
 
 (function () {
   'use strict';
@@ -22,10 +31,10 @@
   const PHONE = matchMedia('(pointer:coarse) and (max-width:820px)').matches;
 
   function toast(m, bad) {
-    let t = document.getElementById('wre-qf-toast');
+    let t = document.getElementById('ec-qf-toast');
     if (!t) {
       t = document.createElement('div');
-      t.id = 'wre-qf-toast';
+      t.id = 'ec-qf-toast';
       t.style.cssText = 'position:fixed;bottom:20px;right:20px;max-width:min(420px,calc(100vw - 40px));z-index:2147483647;padding:10px 14px;border-radius:6px;font:14px/1.4 sans-serif;color:#fff;box-shadow:0 2px 8px rgba(0,0,0,.3);white-space:pre-line';
       document.documentElement.append(t);
     }
@@ -78,7 +87,7 @@
       return n;
     } catch (e) { return -1; }
   };
-  const loadSig = () => { try { return JSON.parse(GM_getValue('wreSignature', 'null')); } catch (e) { return null; } };
+  const loadSig = () => { try { return JSON.parse(GM_getValue('ecSignature', 'null')); } catch (e) { return null; } };
 
   // record what you draw on the pad, so "Save my signature" can keep it
   let rec = [], cur = null, replaying = false;
@@ -96,7 +105,7 @@
   function saveSig() {
     const strokes = rec.filter(s => s.length > 1);
     if (!strokes.length) return toast('Sign the box first, then hit Save my signature.', true);
-    GM_setValue('wreSignature', JSON.stringify(strokes));
+    GM_setValue('ecSignature', JSON.stringify(strokes));
     toast('Saved. Sign in to site will use this signature from now on.');
   }
 
@@ -316,9 +325,9 @@
     return b;
   };
   // sits above the "Grab from AroFlo" button when both are showing
-  const signBtn = mk('wre-qf-sign', 'Sign in to site', signIn, 70);
-  const saveBtn = mk('wre-qf-savesig', 'Save my signature', async () => saveSig(), 122);
-  const repBtn = mk('wre-qf-report', 'Report defaults', fillReport, 70);
+  const signBtn = mk('ec-qf-sign', 'Sign in to site', signIn, 70);
+  const saveBtn = mk('ec-qf-savesig', 'Save my signature', async () => saveSig(), 122);
+  const repBtn = mk('ec-qf-report', 'Report defaults', fillReport, 70);
   saveBtn.style.background = '#6b625b';
 
   const sync = () => {

@@ -6,7 +6,7 @@
 #   python panel.py --startup  start it hidden every time Windows starts
 #   python panel.py --nostartup  stop it starting with Windows
 #
-# Updates itself from the wre-userscripts repo (panel folder) every 15 minutes,
+# Updates itself from the ec-userscripts repo (panel folder) every 15 minutes,
 # and keeps Clipboard Brain up to date too. Put a file called no_auto_update.txt
 # in this folder to turn that off.
 
@@ -25,10 +25,10 @@ import urllib.parse
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = "2.7"
+VERSION = "2.8"
 HERE = os.path.dirname(os.path.abspath(__file__))
-RAW = "https://raw.githubusercontent.com/Badseed26/wre-userscripts/%s/"
-LATEST = "https://api.github.com/repos/Badseed26/wre-userscripts/commits/main"
+RAW = "https://raw.githubusercontent.com/Badseed26/ec-userscripts/%s/"
+LATEST = "https://api.github.com/repos/Badseed26/ec-userscripts/commits/main"
 CHECK_EVERY = 15 * 60
 PANEL_FILES = ["panel.py", "index.html", "buttons.json", "icon.png", "README.txt"]
 PORT = 8765
@@ -41,7 +41,7 @@ ICON_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
               ".webp": "image/webp", ".gif": "image/gif", ".svg": "image/svg+xml"}
 STARTUP_VBS = os.path.join(
     os.environ.get("APPDATA", ""),
-    r"Microsoft\Windows\Start Menu\Programs\Startup\WRE Panel.vbs",
+    r"Microsoft\Windows\Start Menu\Programs\Startup\Desk Panel.vbs",
 )
 
 
@@ -200,13 +200,13 @@ def open_start_menu_app(name):
     os.startfile("shell:AppsFolder\\" + app_id)
 
 
-# ---------- runs on the WRE Dashboard ----------
+# ---------- runs on the dashboard ----------
 # The dashboard starts checks itself (scheduled tasks, the same as its Run buttons). The panel queues a request here,
-# the WRE Inbox Pull script in the dashboard window collects it from /api/dash/next, and the dashboard runs it.
+# the EC Inbox Pull script in the dashboard window collects it from /api/dash/next, and the dashboard runs it.
 
 DASH = {"q": [], "last_poll": 0.0}
 DASH_LOCK = threading.Lock()
-PULL_URL = "https://outlook.cloud.microsoft/mail/#wre-inbox-run"
+PULL_URL = "https://outlook.cloud.microsoft/mail/#ec-inbox-run"
 
 
 def dash_open():
@@ -437,14 +437,12 @@ def write_if_changed(dest, data):
     return True
 
 
+BRAIN = "ec-clipboard-brain.ahk"
+
+
 def brain_path():
-    try:
-        b = find_button(load_buttons(), "cb-start")
-        if b:
-            return resolve_path(b["target"])
-    except Exception:
-        pass
-    return None
+    # Clipboard Brain lives in this folder, next to the panel
+    return os.path.join(HERE, BRAIN)
 
 
 def ahk_running(script_name):
@@ -461,7 +459,7 @@ def ahk_running(script_name):
 
 def brain_running():
     # is Clipboard Brain open right now (so it can be reloaded after an update)
-    return ahk_running("wre-clipboard-brain.ahk")
+    return ahk_running(BRAIN)
 
 
 def check_updates():
@@ -483,7 +481,7 @@ def check_updates():
                     restart = True
         bp = brain_path()
         if bp:
-            data = fetch("wre-clipboard-brain.ahk", ref)
+            data = fetch(BRAIN, ref)
             if looks_ok("brain.ahk", data) and write_if_changed(bp, data):
                 changed.append("Clipboard Brain")
                 if brain_running():
@@ -522,11 +520,11 @@ def updater_loop():
         time.sleep(CHECK_EVERY)
 
 
-# ---------- NPT: what the lads (and you) still owe, from the WRE Calendar NPT script's issues in Todoist ----------
+# ---------- NPT: what the lads (and you) still owe, from the EC Calendar NPT script's issues in Todoist ----------
 # The calendar script keeps one Todoist task per visit that's missing notes, photos or a timesheet:
 #   title: Lachie, 98 Trudy Cres (14/10): notes, photos, timesheet
 #   desc:  JN 9251 | wrid 795229 | visit 2026-10-14 | Lachlan Buckley | missing: notes, photos, timesheet
-# Lads' ones sit in the WRE daily check project, yours in WRE follow ups. The token stays in this folder only.
+# Lads' ones sit in the daily check project, yours in follow ups. The token stays in this folder only.
 
 TODOIST = "https://api.todoist.com/api/v1/"
 NPT_PROJECTS = {"6hgGFjPF6mWJGvf6": "lads", "6hfHcM9Gf74fgcJw": "you"}
@@ -658,7 +656,7 @@ def npt_done(task_id):
 
 
 # ---------- Ambrose: photos or reports still to go up on Ambrose (you and Lisa, not the lads) ----------
-# The calendar script's A letter keeps these in the "Ambrose uploads" section of WRE daily check:
+# The calendar script's A letter keeps these in the "Ambrose uploads" section of daily check:
 #   title: 7 Highview Pl (13/10): photos to Ambrose, Electrical Isolation
 #   desc:  JN 9389 | wrid 795229 | visit 2026-10-13 | PO 20307919-13 | Electrical Isolation | ambrose: photos
 # The section also holds one "ambrose-cache" task with what Ambrose said; that one is never listed.
@@ -752,7 +750,7 @@ def private_client(addr):
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "WREPanel"
+    server_version = "DeskPanel"
 
     def log_message(self, *a):
         pass
@@ -922,6 +920,32 @@ def set_startup(on):
         print("Done. Desk Panel won't start with Windows any more.")
 
 
+def move_old_names():
+    # One off (18/11/2026): the panel's start up file and Clipboard Brain used to carry the old prefix. Swap the start up
+    # file over, and close the old Clipboard Brain so the new one in this folder takes its place. Take this out once done.
+    old = "wre"
+    old_vbs = os.path.join(os.path.dirname(STARTUP_VBS), old.upper() + " Panel.vbs")
+    try:
+        if os.path.exists(old_vbs):
+            os.remove(old_vbs)
+            set_startup(True)
+            log("Moved the start with Windows file to the new name")
+    except Exception as e:
+        log("Couldn't move the start up file: %s" % e)
+    try:
+        if ahk_running(old + "-clipboard-brain.ahk"):
+            ps = ("Get-CimInstance Win32_Process | Where-Object { $_.Name -like 'AutoHotkey*' -and "
+                  "$_.CommandLine -like ('*' + $env:DP_AHK + '*') } | ForEach-Object { Stop-Process -Id $_.ProcessId }")
+            subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, text=True, timeout=30,
+                           env=dict(os.environ, DP_AHK=old + "-clipboard-brain.ahk"), creationflags=0x08000000)
+            if not os.path.exists(brain_path()):
+                write_if_changed(brain_path(), fetch(BRAIN, latest_ref()))
+            os.startfile(brain_path())
+            log("Swapped Clipboard Brain over to the new file")
+    except Exception as e:
+        log("Couldn't swap Clipboard Brain over: %s" % e)
+
+
 def main():
     global KEY
     if "--startup" in sys.argv:
@@ -949,6 +973,7 @@ def main():
         f.write(addr + "\n")
     log("Desk Panel %s running. Open this on the iPad:" % VERSION)
     log("  " + addr)
+    threading.Thread(target=move_old_names, daemon=True).start()
     threading.Thread(target=updater_loop, daemon=True).start()
     try:
         srv.serve_forever()

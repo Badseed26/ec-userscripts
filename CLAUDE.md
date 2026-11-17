@@ -1,6 +1,6 @@
-# wre-userscripts
+# ec-userscripts
 
-Tampermonkey scripts for WRE. Install links in README.md point at `main`, so a change only reaches Ethan's devices once it's on `main`.
+Ethan's Tampermonkey scripts for trade admin. Install links in README.md point at `main`, so a change only reaches Ethan's devices once it's on `main`.
 
 ## Where the code lives
 - The scripts are in `src/<name>.js`. Change those, never the `<name>.user.js` files at the top, which `build.py` makes.
@@ -17,3 +17,14 @@ Tampermonkey scripts for WRE. Install links in README.md point at `main`, so a c
 ## Style
 - No em dashes anywhere (code comments, README, commit messages).
 - Plain, short comments in Aussie English, matching the existing scripts.
+
+## Names
+- Scripts that are Ethan's own go by the EC prefix (script names, file names, storage keys, CSS ids, events).
+- The business name never goes in the code. Scripts that need it (Inbox Filer, Inbox Pull) read it from a setting
+  (Tampermonkey menu, Set business name), the report tool from its CONFIG's `business`.
+
+## One off rename (18/11/2026), to take out once every device shows the new names
+- The block at the top of each src script marked "one off (18/11/2026)", Clipboard Brain's OLDKEY lines, the filer
+  launcher's old shortcut cleanup, and `move_old_names` in panel/panel.py (plus its thread start in `main`).
+- The copies under the old file names (the old prefix .user.js files and clipboard brain .ahk) and the bit of build.py that writes them.
+

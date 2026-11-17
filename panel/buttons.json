@@ -7,10 +7,10 @@
     {
       "name": "Work",
       "buttons": [
-        {"id": "dashboard", "label": "WRE Dashboard", "sub": "Desktop app", "type": "app", "icon": "dash", "color": "blue", "targets": ["%DESKTOP%\\WRE Dashboard.lnk", "https://claude.ai/artifact/Ah1oAv4j9heVqWdqPRNYAx"]},
+        {"id": "dashboard", "label": "dashboard", "sub": "Desktop app", "type": "app", "icon": "dash", "color": "blue", "targets": ["%DESKTOP%\\dashboard.lnk", "https://claude.ai/artifact/Ah1oAv4j9heVqWdqPRNYAx"]},
         {"id": "aroflo", "label": "AroFlo", "sub": "Home", "type": "url", "target": "https://office.aroflo.com/ims/Site/Home/index.cfm?view=1&tid=IMS.HME", "icon": "brief", "color": "teal"},
         {"id": "outlook", "label": "Outlook", "sub": "Desktop app", "type": "app", "icon": "mail", "color": "blue", "targets": ["outlook.exe", "olk.exe", "startmenu:Outlook"]},
-        {"id": "filer", "label": "Inbox Filer tabs", "sub": "Opens both, pin them", "type": "urls", "targets": ["https://outlook.cloud.microsoft/mail/#wre-filer", "https://office.aroflo.com/ims/Site/Home/index.cfm#wre-filer"], "icon": "inbox", "color": "violet"},
+        {"id": "filer", "label": "Inbox Filer tabs", "sub": "Opens both, pin them", "type": "urls", "targets": ["https://outlook.cloud.microsoft/mail/#ec-filer", "https://office.aroflo.com/ims/Site/Home/index.cfm#ec-filer"], "icon": "inbox", "color": "violet"},
         {"id": "todoist", "label": "Todoist", "sub": "Desktop app", "type": "app", "icon": "todo", "color": "coral", "targets": ["%LOCALAPPDATA%\\Programs\\todoist\\Todoist.exe", "startmenu:Todoist"]},
         {"id": "tradies", "label": "Tradies Web", "sub": "Ambrose reports", "type": "url", "target": "https://tradies.ambrosebuilding.com.au/", "icon": "house", "color": "amber"},
         {"id": "ambroseadmin", "label": "Ambrose admin", "sub": "POs", "type": "url", "target": "https://tradiesadmin.ambroseconstruct.com.au/", "icon": "file", "color": "amber"}
@@ -32,7 +32,7 @@
     {
       "name": "Clipboard",
       "buttons": [
-        {"id": "cb-start", "label": "Clipboard Brain", "sub": "Start it up", "type": "ahk", "target": "%DOCUMENTS%\\WRE\\wre-clipboard-brain.ahk", "icon": "power", "color": "green"},
+        {"id": "cb-start", "label": "Clipboard Brain", "sub": "Start it up", "type": "ahk", "target": "ec-clipboard-brain.ahk", "icon": "power", "color": "green"},
         {"id": "cb-boys", "label": "PO lines", "sub": "For the boys", "type": "keys", "keys": "ctrl+alt+1", "icon": "list", "color": "green"},
         {"id": "cb-cust", "label": "Customer text", "sub": "In your style", "type": "keys", "keys": "ctrl+alt+2", "icon": "chat", "color": "green"},
         {"id": "cb-promise", "label": "Promise check", "sub": "Before you send", "type": "keys", "keys": "ctrl+alt+3", "icon": "shield", "color": "green"},
@@ -50,7 +50,7 @@
       "buttons": [
         {"id": "lock", "label": "Lock PC", "sub": "Tap twice", "type": "lock", "confirm": true, "icon": "lock", "color": "slate"},
         {"id": "update", "label": "Check for updates", "sub": "Runs every 15 min anyway", "type": "update", "icon": "refresh", "color": "slate"},
-        {"id": "repo", "label": "Scripts repo", "sub": "wre-userscripts", "type": "url", "target": "https://github.com/Badseed26/wre-userscripts", "icon": "branch", "color": "slate"},
+        {"id": "repo", "label": "Scripts repo", "sub": "ec-userscripts", "type": "url", "target": "https://github.com/Badseed26/ec-userscripts", "icon": "branch", "color": "slate"},
         {"id": "panelfolder", "label": "Panel folder", "sub": "On the PC", "type": "file", "target": ".", "icon": "folder", "color": "slate"},
         {"id": "iconsfolder", "label": "Icons folder", "sub": "Drop your own icons in", "type": "file", "target": "icons", "icon": "image", "color": "slate"}
       ]

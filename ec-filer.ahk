@@ -1,10 +1,10 @@
-; WRE Filer (AutoHotkey v2)
-; Version 1.1
+; EC Filer (AutoHotkey v2)
+; Version 1.2
 ; One click starts the Inbox Filer: opens the Outlook and AroFlo filer tabs in their own Chrome windows and parks both out of
 ; the way. Chrome stops drawing a window that's minimised or covered, and then Outlook never builds the mail list (28/10), so
 ; each window sits in a corner of the screen with only a few pixels showing, pinned on top. Chrome counts them as on screen.
-;   WRE Filer (desktop)       start it (the first run puts both shortcuts on the desktop)
-;   Stop WRE Filer (desktop)  close both filer windows and stop
+;   EC Filer (desktop)       start it (the first run puts both shortcuts on the desktop)
+;   Stop EC Filer (desktop)  close both filer windows and stop
 ;   Tray icon, right click    Show the filer windows / Park them / Restart the filer tabs / Stop all
 ;   Ctrl+Alt+O                show or park the filer windows
 ; Minimise all, Win+D or Show desktop: the filer windows get put back in their corners within a few seconds, without taking
@@ -15,23 +15,23 @@
 Persistent
 
 TABS := [
-    {name: "Outlook", url: "https://outlook.cloud.microsoft/mail/#wre-filer", hwnd: 0, opened: 0},
-    {name: "AroFlo", url: "https://office.aroflo.com/ims/Site/Home/index.cfm#wre-filer", hwnd: 0, opened: 0}
+    {name: "Outlook", url: "https://outlook.cloud.microsoft/mail/#ec-filer", hwnd: 0, opened: 0},
+    {name: "AroFlo", url: "https://office.aroflo.com/ims/Site/Home/index.cfm#ec-filer", hwnd: 0, opened: 0}
 ]
-INI := A_Temp "\wre-filer.ini"   ; the two windows, so a restart of this script takes them back instead of opening more
+INI := A_Temp "\ec-filer.ini"   ; the two windows, so a restart of this script takes them back instead of opening more
 SHOW := 4                        ; pixels left on screen each way
 W := 1700, H := 1050             ; each window's real size (mostly off screen). 1.1: 900 wide folded Outlook's folder list away
                                  ; (29/10), so it's wide enough now for Outlook's full layout even with Windows scaling up
 parked := true
 
-; Stop WRE Filer shortcut runs this with "stop"
+; Stop EC Filer shortcut runs this with "stop"
 if (A_Args.Length && A_Args[1] = "stop") {
     StopAll()
     return
 }
 
 MakeShortcuts()
-A_IconTip := "WRE Filer: running"
+A_IconTip := "EC Filer: running"
 tray := A_TrayMenu
 tray.Delete()
 tray.Add("Show the filer windows", (*) => ToggleShow())
@@ -43,17 +43,20 @@ tray.Default := "Show the filer windows"
 for t in TABS
     Adopt(t) || Open(t)
 SetTimer Keep, 3000
-TrayTip "Outlook and AroFlo filer tabs open and parked", "WRE Filer", 1
+TrayTip "Outlook and AroFlo filer tabs open and parked", "EC Filer", 1
 return
 
 ^!o:: ToggleShow()
 
 MakeShortcuts() {
-    s1 := A_Desktop "\WRE Filer.lnk", s2 := A_Desktop "\Stop WRE Filer.lnk"
+    ; One off (18/11/2026): the desktop shortcuts used to carry the old prefix. Remove those. Take this out once done.
+    for o in ["WRE Filer.lnk", "Stop WRE Filer.lnk"]
+        try FileDelete A_Desktop "\" o
+    s1 := A_Desktop "\EC Filer.lnk", s2 := A_Desktop "\Stop EC Filer.lnk"
     if !FileExist(s1)
-        FileCreateShortcut A_AhkPath, s1, A_ScriptDir, '"' A_ScriptFullPath '"', "Start the WRE Inbox Filer"
+        FileCreateShortcut A_AhkPath, s1, A_ScriptDir, '"' A_ScriptFullPath '"', "Start the EC Inbox Filer"
     if !FileExist(s2)
-        FileCreateShortcut A_AhkPath, s2, A_ScriptDir, '"' A_ScriptFullPath '" stop', "Close the WRE filer windows and stop"
+        FileCreateShortcut A_AhkPath, s2, A_ScriptDir, '"' A_ScriptFullPath '" stop', "Close the filer windows and stop"
 }
 
 ; A filer window from before (this script restarted) that's still open: use it rather than opening another
@@ -74,7 +77,7 @@ Open(t) {
     t.opened := A_TickCount
     try Run 'chrome.exe --new-window "' t.url '"'
     catch {
-        MsgBox "Couldn't start Chrome for the " t.name " filer tab.", "WRE Filer"
+        MsgBox "Couldn't start Chrome for the " t.name " filer tab.", "EC Filer"
         return
     }
     loop 60 {  ; up to 30 s for the new window
@@ -108,7 +111,7 @@ StopAll() {
             WinClose "ahk_id " h
     }
     try FileDelete INI
-    TrayTip "Filer windows closed. Anything that comes in now gets picked up next time you start it.", "WRE Filer stopped", 1
+    TrayTip "Filer windows closed. Anything that comes in now gets picked up next time you start it.", "EC Filer stopped", 1
     Sleep 2500
     ExitApp
 }

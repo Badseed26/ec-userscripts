@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Ambrose <-> AroFlo jump
-// @namespace    wre
-// @version      3.16
+// @namespace    ec
+// @version      3.17
 // @description  "Open in AroFlo" on Ambrose PO and Tradies Web pages, "Open in Ambrose" on AroFlo tasks, and AroFlo labour hours, job profit and an invoiced-vs-PO-value log on the Ambrose PO list and PO pages
 // @match        https://office.aroflo.com/*
 // @match        https://tradiesadmin.ambroseconstruct.com.au/*
@@ -10,12 +10,14 @@
 // @grant        GM_openInTab
 // @grant        GM_getValue
 // @grant        GM_setValue
+// @grant        GM_listValues
+// @grant        GM_deleteValue
 // @connect      office.aroflo.com
 // @connect      api.github.com
 // @connect      raw.githubusercontent.com
 // @run-at       document-idle
-// @updateURL    https://raw.githubusercontent.com/Badseed26/wre-userscripts/main/ambrose-aroflo-jump.user.js
-// @downloadURL  https://raw.githubusercontent.com/Badseed26/wre-userscripts/main/ambrose-aroflo-jump.user.js
+// @updateURL    https://raw.githubusercontent.com/Badseed26/ec-userscripts/main/ambrose-aroflo-jump.user.js
+// @downloadURL  https://raw.githubusercontent.com/Badseed26/ec-userscripts/main/ambrose-aroflo-jump.user.js
 // ==/UserScript==
 
 // Built from src/ambrose-aroflo-jump.js by build.py. Change src/ambrose-aroflo-jump.js, not this file.
@@ -23,58 +25,65 @@
   // Live updates (23/10): Tampermonkey only checks for a new version every few hours. This checks the repo's latest commit every
   // 2 min (free when nothing's changed) and keeps the newest code here, so a push runs on the next page load. If the new code needs
   // a permission this install hasn't got, or this browser won't run it, the built in copy below runs like before.
-  const __wreName = "ambrose-aroflo-jump", __wreVer = "3.16", __wreHave = new Set(["// @connect api.github.com", "// @connect office.aroflo.com", "// @connect raw.githubusercontent.com", "// @grant GM_getValue", "// @grant GM_openInTab", "// @grant GM_setValue", "// @grant GM_xmlhttpRequest", "// @match https://office.aroflo.com/*", "// @match https://tradies.ambrosebuilding.com.au/*", "// @match https://tradiesadmin.ambroseconstruct.com.au/*", "// @run-at document-idle"]);
-  const __wreInfo0 = typeof GM_info != 'undefined' ? GM_info : null;
-  const __wreSay = m => { try { console.log('[WRE live update] ' + __wreName + ': ' + m); } catch (e) {} };
-  const __wreCmp = (a, b) => { const x = String(a).split('.').map(Number), y = String(b).split('.').map(Number); for (let i = 0; i < Math.max(x.length, y.length); i++) { const d = (x[i] || 0) - (y[i] || 0); if (d) return d; } return 0; };
-  const __wreMeta = c => { const h = (String(c).match(/==UserScript==([\s\S]*?)==\/UserScript==/) || [])[1] || ''; return { v: (h.match(/^\/\/ @version\s+(\S+)/m) || [])[1] || '', need: (h.match(/^\/\/ @(grant|connect|match|exclude|include|run-at|sandbox)\s+.+$/gm) || []).map(s => s.replace(/\s+/g, ' ').trim()) }; };
-  const __wreMissing = need => need.filter(x => !__wreHave.has(x) && !(/^\/\/ @connect /.test(x) && __wreHave.has('// @connect *')));
+  const __ecName = "ambrose-aroflo-jump", __ecVer = "3.17", __ecHave = new Set(["// @connect api.github.com", "// @connect office.aroflo.com", "// @connect raw.githubusercontent.com", "// @grant GM_deleteValue", "// @grant GM_getValue", "// @grant GM_listValues", "// @grant GM_openInTab", "// @grant GM_setValue", "// @grant GM_xmlhttpRequest", "// @match https://office.aroflo.com/*", "// @match https://tradies.ambrosebuilding.com.au/*", "// @match https://tradiesadmin.ambroseconstruct.com.au/*", "// @run-at document-idle"]);
+  const __ecInfo0 = typeof GM_info != 'undefined' ? GM_info : null;
+  const __ecSay = m => { try { console.log('[live update] ' + __ecName + ': ' + m); } catch (e) {} };
+  const __ecCmp = (a, b) => { const x = String(a).split('.').map(Number), y = String(b).split('.').map(Number); for (let i = 0; i < Math.max(x.length, y.length); i++) { const d = (x[i] || 0) - (y[i] || 0); if (d) return d; } return 0; };
+  const __ecMeta = c => { const h = (String(c).match(/==UserScript==([\s\S]*?)==\/UserScript==/) || [])[1] || ''; return { v: (h.match(/^\/\/ @version\s+(\S+)/m) || [])[1] || '', need: (h.match(/^\/\/ @(grant|connect|match|exclude|include|run-at|sandbox)\s+.+$/gm) || []).map(s => s.replace(/\s+/g, ' ').trim()) }; };
+  const __ecMissing = need => need.filter(x => !__ecHave.has(x) && !(/^\/\/ @connect /.test(x) && __ecHave.has('// @connect *')));
   // the newer code, run with GM_info saying its own version
-  function __wreRun(__wreCode, __wreV) { const GM_info = __wreInfo0 ? Object.assign({}, __wreInfo0, { script: Object.assign({}, __wreInfo0.script, { version: __wreV }) }) : undefined; eval(__wreCode); }
-  function __wreLive() {
-    let c = null; try { c = GM_getValue('wreLiveCode', null); } catch (e) { return false; }
-    if (!c || !c.code || __wreCmp(c.v, __wreVer) <= 0) return false;
-    const miss = __wreMissing(__wreMeta(c.code).need); if (miss.length) { __wreSay(c.v + ' needs ' + miss.join(', ') + ', running the built in ' + __wreVer + ' till Tampermonkey updates'); return false; }
-    try { eval('0'); } catch (e) { __wreSay('this browser won\'t run live code (' + e.message + '), running the built in ' + __wreVer); return false; }
-    try { __wreRun(c.code, c.v); } catch (e) { if (e instanceof SyntaxError) { __wreSay(c.v + ' won\'t parse, running the built in ' + __wreVer); return false; } __wreSay(c.v + ' threw: ' + e.message); }
-    __wreSay('running ' + c.v + ' (built in is ' + __wreVer + ')'); return true;
+  function __ecRun(__ecCode, __ecV) { const GM_info = __ecInfo0 ? Object.assign({}, __ecInfo0, { script: Object.assign({}, __ecInfo0.script, { version: __ecV }) }) : undefined; eval(__ecCode); }
+  function __ecLive() {
+    let c = null; try { c = GM_getValue('ecLiveCode', null); } catch (e) { return false; }
+    if (!c || !c.code || __ecCmp(c.v, __ecVer) <= 0) return false;
+    const miss = __ecMissing(__ecMeta(c.code).need); if (miss.length) { __ecSay(c.v + ' needs ' + miss.join(', ') + ', running the built in ' + __ecVer + ' till Tampermonkey updates'); return false; }
+    try { eval('0'); } catch (e) { __ecSay('this browser won\'t run live code (' + e.message + '), running the built in ' + __ecVer); return false; }
+    try { __ecRun(c.code, c.v); } catch (e) { if (e instanceof SyntaxError) { __ecSay(c.v + ' won\'t parse, running the built in ' + __ecVer); return false; } __ecSay(c.v + ' threw: ' + e.message); }
+    __ecSay('running ' + c.v + ' (built in is ' + __ecVer + ')'); return true;
   }
   // keep newer code once it's been fetched (sha = the commit, or raw:<version> when it came the fallback way)
-  function __wreTake(code, sha, tag) {
+  function __ecTake(code, sha, tag) {
     if (!/==\/UserScript==/.test(code)) return;
-    const m = __wreMeta(code); if (!m.v) return;
-    if (__wreCmp(m.v, __wreVer) > 0) {
+    const m = __ecMeta(code); if (!m.v) return;
+    if (__ecCmp(m.v, __ecVer) > 0) {
       let ok = true; try { new Function(code); } catch (e) { ok = !(e instanceof SyntaxError); }
-      if (!ok) { __wreSay(m.v + ' won\'t parse, not keeping it'); GM_setValue('wreLiveSha', sha); return; }
-      const old = GM_getValue('wreLiveCode', null); if (!old || old.v != m.v) __wreSay('got ' + m.v + ', it runs on the next page load');
-      GM_setValue('wreLiveCode', { v: m.v, code, sha, at: Date.now() });
-    } else GM_setValue('wreLiveCode', null); // Tampermonkey's copy has caught up
-    GM_setValue('wreLiveSha', sha); if (tag) GM_setValue('wreLiveEtag', tag);
+      if (!ok) { __ecSay(m.v + ' won\'t parse, not keeping it'); GM_setValue('ecLiveSha', sha); return; }
+      const old = GM_getValue('ecLiveCode', null); if (!old || old.v != m.v) __ecSay('got ' + m.v + ', it runs on the next page load');
+      GM_setValue('ecLiveCode', { v: m.v, code, sha, at: Date.now() });
+    } else GM_setValue('ecLiveCode', null); // Tampermonkey's copy has caught up
+    GM_setValue('ecLiveSha', sha); if (tag) GM_setValue('ecLiveEtag', tag);
   }
   // GitHub's commit check is limited per internet address, and on 4G/5G that address is shared with lots of other
   // phones, so it can get turned away. Then the newest file is fetched straight off main instead (5/11).
-  function __wreRaw() {
-    GM_xmlhttpRequest({ method: 'GET', url: 'https://raw.githubusercontent.com/Badseed26/wre-userscripts/main/src/' + __wreName + '.js?t=' + Date.now(), timeout: 30000, headers: { 'Cache-Control': 'no-cache' }, onload: q => {
-      try { if (q.status != 200) return; const v = __wreMeta(q.responseText || '').v; if (v) __wreTake(q.responseText, 'raw:' + v); } catch (e) {} } });
+  function __ecRaw() {
+    GM_xmlhttpRequest({ method: 'GET', url: 'https://raw.githubusercontent.com/Badseed26/ec-userscripts/main/src/' + __ecName + '.js?t=' + Date.now(), timeout: 30000, headers: { 'Cache-Control': 'no-cache' }, onload: q => {
+      try { if (q.status != 200) return; const v = __ecMeta(q.responseText || '').v; if (v) __ecTake(q.responseText, 'raw:' + v); } catch (e) {} } });
   }
-  function __wreCheck() {
+  function __ecCheck() {
     try {
-      if (Date.now() - GM_getValue('wreLiveAt', 0) < 2 * 60e3) return; GM_setValue('wreLiveAt', Date.now());
-      const et = GM_getValue('wreLiveEtag', ''), hd = { Accept: 'application/vnd.github+json' }; if (et) hd['If-None-Match'] = et;
-      GM_xmlhttpRequest({ method: 'GET', url: 'https://api.github.com/repos/Badseed26/wre-userscripts/commits/main', headers: hd, timeout: 20000, onerror: __wreRaw, ontimeout: __wreRaw, onload: r => {
+      if (Date.now() - GM_getValue('ecLiveAt', 0) < 2 * 60e3) return; GM_setValue('ecLiveAt', Date.now());
+      const et = GM_getValue('ecLiveEtag', ''), hd = { Accept: 'application/vnd.github+json' }; if (et) hd['If-None-Match'] = et;
+      GM_xmlhttpRequest({ method: 'GET', url: 'https://api.github.com/repos/Badseed26/ec-userscripts/commits/main', headers: hd, timeout: 20000, onerror: __ecRaw, ontimeout: __ecRaw, onload: r => {
         try {
           if (r.status == 304) return; // nothing new, and it doesn't count against GitHub's limit
-          if (r.status != 200) { __wreSay('GitHub said ' + r.status + ', checking the file directly'); return __wreRaw(); }
+          if (r.status != 200) { __ecSay('GitHub said ' + r.status + ', checking the file directly'); return __ecRaw(); }
           const sha = (JSON.parse(r.responseText) || {}).sha, tag = (((r.responseHeaders || '').match(/^etag:\s*(.+)$/mi) || [])[1] || '').trim();
-          if (!sha) return; if (sha == GM_getValue('wreLiveSha', '')) { if (tag) GM_setValue('wreLiveEtag', tag); return; }
-          GM_xmlhttpRequest({ method: 'GET', url: 'https://raw.githubusercontent.com/Badseed26/wre-userscripts/' + sha + '/src/' + __wreName + '.js', timeout: 30000, onload: q => {
-            try { if (q.status == 200) __wreTake(q.responseText || '', sha, tag); } catch (e) {} } });
+          if (!sha) return; if (sha == GM_getValue('ecLiveSha', '')) { if (tag) GM_setValue('ecLiveEtag', tag); return; }
+          GM_xmlhttpRequest({ method: 'GET', url: 'https://raw.githubusercontent.com/Badseed26/ec-userscripts/' + sha + '/src/' + __ecName + '.js', timeout: 30000, onload: q => {
+            try { if (q.status == 200) __ecTake(q.responseText || '', sha, tag); } catch (e) {} } });
         } catch (e) {} } });
     } catch (e) {}
   }
-  if (window.top === window.self) { __wreCheck(); setInterval(__wreCheck, 2 * 60e3 + 5000); }
-  if (__wreLive()) return;
-  // ---------- the built in copy (src/ambrose-aroflo-jump.js at 3.16) ----------
+  if (window.top === window.self) { __ecCheck(); setInterval(__ecCheck, 2 * 60e3 + 5000); }
+  if (__ecLive()) return;
+  // ---------- the built in copy (src/ambrose-aroflo-jump.js at 3.17) ----------
+
+// ---------- one off (18/11/2026): moves this device's saved data over from the old names. Take this block out once every device has run it ----------
+try {
+  const nn = k => k.replace(/wre/g, 'ec').replace(/Wre/g, 'Ec').replace(/WRE/g, 'EC'), old = /(^|[^A-Za-z])(wre|Wre|WRE)/;
+  if (typeof GM_listValues == 'function') for (const k of GM_listValues()) if (old.test(k)) { const n = nn(k); if (GM_getValue(n, undefined) === undefined) GM_setValue(n, GM_getValue(k)); GM_deleteValue(k); }
+  if (/aroflo|ambrose|outlook|cnw|tradezone/.test(location.hostname)) for (const k of Object.keys(localStorage)) if (old.test(k)) { const n = nn(k); if (localStorage.getItem(n) == null) localStorage.setItem(n, localStorage.getItem(k)); localStorage.removeItem(k); }
+} catch (e) {}
 
 (function () {
   'use strict';
@@ -101,10 +110,10 @@
   const byId = id => ui().querySelector('#' + id);
 
   function toast(m, bad) {
-    let t = byId('wre-jump-toast');
+    let t = byId('ec-jump-toast');
     if (!t) {
       t = document.createElement('div');
-      t.id = 'wre-jump-toast';
+      t.id = 'ec-jump-toast';
       t.style.cssText = 'position:fixed;bottom:64px;right:18px;max-width:420px;z-index:2147483647;padding:10px 14px;border-radius:6px;font:14px/1.4 sans-serif;color:#fff;box-shadow:0 2px 8px rgba(0,0,0,.3)';
       ui().append(t);
     }
@@ -152,9 +161,9 @@
   }
 
   function chooser(tasks) {
-    byId('wre-jump-pick')?.remove();
+    byId('ec-jump-pick')?.remove();
     const box = document.createElement('div');
-    box.id = 'wre-jump-pick';
+    box.id = 'ec-jump-pick';
     box.style.cssText = 'position:fixed;right:18px;bottom:110px;z-index:2147483647;background:#fff;color:#222;border-radius:6px;box-shadow:0 2px 12px rgba(0,0,0,.4);font:13px sans-serif;max-width:420px;overflow:hidden';
     tasks.forEach(t => {
       const row = document.createElement('div');
@@ -220,7 +229,7 @@
     }
     const exact = rows.filter(r => po.length > 8 && rowText(r).startsWith(po));
     const pick = exact.length === 1 ? exact[0] : rows.length === 1 ? rows[0] : null;
-    sessionStorage.removeItem('wrePendingPo'); // we got as far as the list, so don't redo this after a reload
+    sessionStorage.removeItem('ecPendingPo'); // we got as far as the list, so don't redo this after a reload
     if (pick) { (pick.querySelector('.pointer-enabled') || pick.querySelector('td')).click(); return; }
     if (rows.length > 1) return toast(rows.length + ' POs start with ' + base + '. Pick the one you want.');
     toast('PO ' + po + ' isn\'t in the Purchase Orders list. It might be under Invoices or Paid Invoices.', true);
@@ -244,12 +253,12 @@
       for (let i = 0; i < 6; i++) {
         const po = arofloPo();
         if (po) {
-          ui().append(makeBtn('wre-jump-amb', 'Open in Ambrose', 18, async () => open(AMB + '/PurchaseOrders#wre-po=' + po)));
+          ui().append(makeBtn('ec-jump-amb', 'Open in Ambrose', 18, async () => open(AMB + '/PurchaseOrders#ec-po=' + po)));
           // Ambrose task names should start with the PO number ("20334628 - address"). Warn only, never rename.
           const name = (clean(document.title).match(/^JN \d+ - (.+)$/) || [])[1];
           if (name && !name.startsWith(po.slice(0, 8))) {
             const w = document.createElement('div');
-            w.id = 'wre-jump-name';
+            w.id = 'ec-jump-name';
             w.textContent = 'Task name should start with ' + po.slice(0, 8);
             w.title = 'Ambrose task names go "' + po.slice(0, 8) + ' - full address". The jump still works, this is just to keep things tidy.';
             w.style.cssText = 'position:fixed;right:18px;bottom:62px;z-index:2147483646;background:#b3261e;color:#fff;border-radius:6px;padding:6px 10px;font:600 12px sans-serif;box-shadow:0 2px 8px rgba(0,0,0,.35)';
@@ -266,11 +275,11 @@
   if (host === 'tradiesadmin.ambroseconstruct.com.au') {
     // "Open in Ambrose" lands here with the PO in the hash. Keep it in sessionStorage so that if Ambrose has to be
     // reloaded (see below) the jump still happens on the page that comes back.
-    const m = location.hash.match(/wre-po=(\d{8}(?:-\d{2,3})?)/);
-    if (m) { history.replaceState(null, '', location.pathname); sessionStorage.setItem('wrePendingPo', m[1] + '|' + Date.now()); }
-    const pend = (sessionStorage.getItem('wrePendingPo') || '').split('|');
+    const m = location.hash.match(/ec-po=(\d{8}(?:-\d{2,3})?)/);
+    if (m) { history.replaceState(null, '', location.pathname); sessionStorage.setItem('ecPendingPo', m[1] + '|' + Date.now()); }
+    const pend = (sessionStorage.getItem('ecPendingPo') || '').split('|');
     if (pend[0] && Date.now() - +pend[1] < 3 * 60000 && /^\/PurchaseOrders\/?$/i.test(location.pathname)) finishJump(pend[0]);
-    else if (pend[0]) sessionStorage.removeItem('wrePendingPo');
+    else if (pend[0]) sessionStorage.removeItem('ecPendingPo');
 
     // Ambrose often doesn't come up: spinner forever, or the yellow "An error has occurred" bar. Reload for you
     // until it does. Gives up after 6 goes in a row so a real outage doesn't loop forever.
@@ -288,11 +297,11 @@
     setInterval(() => {
       if (document.hidden) return;
       const why = stuck();
-      let n = +(sessionStorage.getItem('wreReloads') || 0);
-      if (!why) { if (loaded() && n) sessionStorage.setItem('wreReloads', '0'); reloadAt = 0; return; }
-      if (n >= 8) { if (!byId('wre-jump-toast')) toast(why + ' and 8 reloads haven\'t fixed it. Leaving it alone now, try again later.', true); return; }
+      let n = +(sessionStorage.getItem('ecReloads') || 0);
+      if (!why) { if (loaded() && n) sessionStorage.setItem('ecReloads', '0'); reloadAt = 0; return; }
+      if (n >= 8) { if (!byId('ec-jump-toast')) toast(why + ' and 8 reloads haven\'t fixed it. Leaving it alone now, try again later.', true); return; }
       if (!reloadAt) { reloadAt = Date.now() + 600; toast(why + ', reloading (' + (n + 1) + ' of 8)...', true); return; }
-      if (Date.now() >= reloadAt) { sessionStorage.setItem('wreReloads', String(n + 1)); location.reload(); }
+      if (Date.now() >= reloadAt) { sessionStorage.setItem('ecReloads', String(n + 1)); location.reload(); }
     }, 700);
   }
 
@@ -431,7 +440,7 @@
   }
 
   // --- the task index ---
-  let idx = gmGet('wreIdx', null); // { t, tasks: [{id, jn, name, status, href}] }
+  let idx = gmGet('ecIdx', null); // { t, tasks: [{id, jn, name, status, href}] }
   let idxLoading = null, idxGen = 0;
   async function fetchIndex() {
     const body = new URLSearchParams({ gsfilter: '', tid: 'IMS.STK.CUR', client_id: '0', searchString: 'Ambrose', SearchParam: 'Client', search: 'Search', search_btn: 'Search', searchallBU_home: 'on', selpage: '1', startrow: '1', maxrows: '2000', changeview: '-3' }).toString();
@@ -440,7 +449,7 @@
     const tasks = taskRows(r.responseText);
     if (!tasks.length) throw new Error('AroFlo sent back an empty task list');
     idx = { t: Date.now(), tasks };
-    gmSet('wreIdx', idx);
+    gmSet('ecIdx', idx);
     idxGen++;
     live.forEach(e => { e.checked = 0; }); // every line gets re-matched against the new index
     return idx;
@@ -504,9 +513,9 @@
   }
 
   // --- labour per task ---
-  const hrsCache = gmGet('wreHrs', {}); // id -> { t, v }
+  const hrsCache = gmGet('ecHrs', {}); // id -> { t, v }
   let hrsDirty = 0;
-  const saveHrs = () => { clearTimeout(hrsDirty); hrsDirty = setTimeout(() => gmSet('wreHrs', hrsCache), 800); };
+  const saveHrs = () => { clearTimeout(hrsDirty); hrsDirty = setTimeout(() => gmSet('ecHrs', hrsCache), 800); };
   async function fetchLabour(id) {
     if (await isClassic()) return fetchLabourClassic(id);
     const r = await gm({ method: 'GET', url: AF + '/cf-api/tasks/' + id, headers: { accept: 'application/json' } });
@@ -525,17 +534,17 @@
   const COST_RATE = 80;
   const profFresh = () => classic === false ? 15 * 60000 : 30 * 60000; // phone pages are big, so it checks less often
   const profOk = pc => pc && pc.cv === 2 && Date.now() - pc.t < profFresh(); // cv: older versions' figures get redone
-  const profCache = gmGet('wreProf', {}); // id -> { t, cost, inv, invN, exp }
+  const profCache = gmGet('ecProf', {}); // id -> { t, cost, inv, invN, exp }
   let profDirty = 0;
-  const saveProf = () => { clearTimeout(profDirty); profDirty = setTimeout(() => gmSet('wreProf', profCache), 2500); };
-  let buId = gmGet('wreBu', '');
+  const saveProf = () => { clearTimeout(profDirty); profDirty = setTimeout(() => gmSet('ecProf', profCache), 2500); };
+  let buId = gmGet('ecBu', '');
   async function businessUnit() {
     if (buId) return buId;
     const r = await gm({ method: 'GET', url: AF + '/cf-api/businessunits/', headers: { accept: 'application/json' } });
     const j = JSON.parse(r.responseText);
     buId = j.items && j.items[0] && j.items[0].id;
     if (!buId) throw new Error('couldn\'t read the business unit');
-    gmSet('wreBu', buId);
+    gmSet('ecBu', buId);
     return buId;
   }
   async function fetchProfit(t) {
@@ -655,9 +664,9 @@
   // Invoices and Paid Invoices tabs as you open them. Everything is kept in Tampermonkey so it survives the PO
   // dropping off Ambrose.
   const FEED_FRESH = 90 * 1000, FEED_PAGE = 100; // newest invoices re-read every 90s while you're on the list
-  const log = Object.assign({ pos: {}, inv: {}, amb: {}, feedT: 0, full: false }, gmGet('wreLog', {}));
+  const log = Object.assign({ pos: {}, inv: {}, amb: {}, feedT: 0, full: false }, gmGet('ecLog', {}));
   let logDirty = 0, logVer = 1, byPoVer = 0, byPo = {};
-  const saveLog = () => { logVer++; clearTimeout(logDirty); logDirty = setTimeout(() => gmSet('wreLog', log), 600); };
+  const saveLog = () => { logVer++; clearTimeout(logDirty); logDirty = setTimeout(() => gmSet('ecLog', log), 600); };
   // 2.0 read its own drawer rows as PO lines and saved made-up PO values; throw those out once
   if (!log.v) { Object.keys(log.pos).forEach(po => { const a = log.pos[po].addr || ''; if (!a || /^\d{8}\b/.test(a) || /#\d{4,6}/.test(a)) delete log.pos[po]; }); log.v = 2; saveLog(); }
   function poIndex() { // invoices grouped by full PO, rebuilt only when the log changes
@@ -669,7 +678,7 @@
   }
   const PO_FULL = /\b(\d{8}-\d{2,3})\b/;
   const invoiced = st => /APPROVED|PROCESSED|PAID|SENT/i.test(st || '');
-  let ambClient = gmGet('wreAmbClient', '');
+  let ambClient = gmGet('ecAmbClient', '');
   async function ambroseClientId() {
     if (ambClient) return ambClient;
     await ensureIndex();
@@ -677,7 +686,7 @@
     const j = JSON.parse(r.responseText);
     ambClient = j.client && j.client.id;
     if (!ambClient) throw new Error('couldn\'t read the Ambrose client id');
-    gmSet('wreAmbClient', ambClient);
+    gmSet('ecAmbClient', ambClient);
     return ambClient;
   }
   async function feedPage(page) {
@@ -801,7 +810,7 @@
   let drawer = null, drawerOpen = false, showAll = false, filter = '';
   function renderDrawer() {
     if (!drawer) return;
-    const body = drawer.querySelector('.wre-log-body'), head = drawer.querySelector('.wre-log-head');
+    const body = drawer.querySelector('.ec-log-body'), head = drawer.querySelector('.ec-log-head');
     const pos = new Set([...Object.values(log.inv).map(i => i.po).filter(Boolean), ...Object.keys(log.pos)]);
     let rows = [...pos].map(poPosition).filter(x => x.invs.length || x.drafts);
     const open = rows.filter(x => x.kind === 'open' || x.kind === 'over');
@@ -811,9 +820,9 @@
     head.textContent = 'Invoice log: ' + open.length + ' PO' + (open.length === 1 ? '' : 's') + ' part invoiced with more to come' + (noVal ? ' (' + noVal + ' need a PO value typed in)' : '') + (showAll ? ', showing all ' + rows.length + ' with invoices' : '') + (log.full ? '' : ' (still building, first time)') + (idx ? '' : ' (task statuses still loading)');
     const esc = v => String(v == null ? '' : v).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
     body.innerHTML = '<table><thead><tr><th>PO</th><th>Address</th><th>JN</th><th>Task</th><th>PO value ex</th><th>Invoiced</th><th>Left</th><th>Invoices</th><th>Ambrose</th><th>Last</th></tr></thead><tbody>' +
-      list.map(x => '<tr class="k-' + x.kind + '" data-po="' + esc(x.po) + '"><td>' + esc(x.po) + '</td><td>' + esc(x.addr) + '</td><td>' + (x.href ? '<a href="' + esc(AF + x.href) + '" target="_blank">' + esc(x.jn) + '</a>' : esc(x.jn)) + '</td><td>' + esc(x.tstat) + '</td><td><input class="wre-val" value="' + (x.val != null ? x.val : '') + '" placeholder="type it" size="8" title="' + (x.typed != null ? 'Typed in. Clear it to go back to what Ambrose showed.' : x.val != null ? 'Seen on Ambrose. Type over it to correct.' : 'Not seen on Ambrose yet. Type the PO value ex GST.') + '"></td><td>' + fmt$(x.sum) + '</td><td>' + (x.left != null ? fmt$(x.left) : '?') + '</td><td title="' + esc(posTitle(x)) + '">' + x.invs.map(i => '#' + i.n + (i.ty === 'P' ? ' P' : ' F') + ' ' + fmt$(i.ex)).join(', ') + (x.drafts ? ' +' + x.drafts + ' draft' : '') + '</td><td>' + esc(x.amb) + '</td><td>' + esc(x.last) + '</td></tr>').join('') +
+      list.map(x => '<tr class="k-' + x.kind + '" data-po="' + esc(x.po) + '"><td>' + esc(x.po) + '</td><td>' + esc(x.addr) + '</td><td>' + (x.href ? '<a href="' + esc(AF + x.href) + '" target="_blank">' + esc(x.jn) + '</a>' : esc(x.jn)) + '</td><td>' + esc(x.tstat) + '</td><td><input class="ec-val" value="' + (x.val != null ? x.val : '') + '" placeholder="type it" size="8" title="' + (x.typed != null ? 'Typed in. Clear it to go back to what Ambrose showed.' : x.val != null ? 'Seen on Ambrose. Type over it to correct.' : 'Not seen on Ambrose yet. Type the PO value ex GST.') + '"></td><td>' + fmt$(x.sum) + '</td><td>' + (x.left != null ? fmt$(x.left) : '?') + '</td><td title="' + esc(posTitle(x)) + '">' + x.invs.map(i => '#' + i.n + (i.ty === 'P' ? ' P' : ' F') + ' ' + fmt$(i.ex)).join(', ') + (x.drafts ? ' +' + x.drafts + ' draft' : '') + '</td><td>' + esc(x.amb) + '</td><td>' + esc(x.last) + '</td></tr>').join('') +
       '</tbody></table>' + (list.length ? '' : '<div style="padding:14px;color:#777">Nothing to show' + (log.full ? '' : ' yet, the log is still building') + '</div>');
-    body.querySelectorAll('input.wre-val').forEach(inp => inp.addEventListener('change', () => {
+    body.querySelectorAll('input.ec-val').forEach(inp => inp.addEventListener('change', () => {
       const po = inp.closest('tr').getAttribute('data-po'), v = parseFloat(String(inp.value).replace(/[^\d.]/g, ''));
       log.val = log.val || {};
       if (isNaN(v)) delete log.val[po]; else log.val[po] = Math.round(v * 100) / 100;
@@ -834,18 +843,18 @@
   }
   function buildDrawer() {
     const st = document.createElement('style');
-    st.textContent = '#wre-log{position:fixed;left:0;right:0;bottom:0;z-index:2147483645;background:#fff;color:#222;font:13px sans-serif;box-shadow:0 -3px 14px rgba(0,0,0,.35);max-height:62vh;display:flex;flex-direction:column}' +
-      '#wre-log .bar{display:flex;gap:10px;align-items:center;padding:8px 14px;background:#4b4540;color:#fff;flex-wrap:wrap}#wre-log .bar b{margin-right:auto}' +
-      '#wre-log .bar button,#wre-log .bar input{font:13px sans-serif;padding:4px 9px;border-radius:4px;border:1px solid #888}#wre-log .bar button{background:#f4f4f4;cursor:pointer}' +
-      '#wre-log .wre-log-body{overflow:auto}#wre-log table{border-collapse:collapse;width:100%}#wre-log th{position:sticky;top:0;background:#eee;text-align:left;padding:6px 8px;font-weight:600}#wre-log td{padding:5px 8px;border-top:1px solid #eee;white-space:nowrap}' +
-      '#wre-log tr.k-open td:nth-child(7){color:#b3261e;font-weight:600}#wre-log tr.k-over td:nth-child(7){color:#b3261e;font-weight:700}#wre-log tr.k-done td:nth-child(7){color:#2e7d32}#wre-log input.wre-val{font:13px sans-serif;padding:2px 6px;border:1px solid #bbb;border-radius:4px;width:80px}#wre-log a{color:#1a5fb4}' +
-      '#wre-log-btn{position:fixed;left:18px;bottom:18px;z-index:2147483644;background:#4b4540;color:#fff;border:0;border-radius:6px;padding:9px 13px;font:600 13px sans-serif;box-shadow:0 2px 8px rgba(0,0,0,.35);cursor:pointer}';
+    st.textContent = '#ec-log{position:fixed;left:0;right:0;bottom:0;z-index:2147483645;background:#fff;color:#222;font:13px sans-serif;box-shadow:0 -3px 14px rgba(0,0,0,.35);max-height:62vh;display:flex;flex-direction:column}' +
+      '#ec-log .bar{display:flex;gap:10px;align-items:center;padding:8px 14px;background:#4b4540;color:#fff;flex-wrap:wrap}#ec-log .bar b{margin-right:auto}' +
+      '#ec-log .bar button,#ec-log .bar input{font:13px sans-serif;padding:4px 9px;border-radius:4px;border:1px solid #888}#ec-log .bar button{background:#f4f4f4;cursor:pointer}' +
+      '#ec-log .ec-log-body{overflow:auto}#ec-log table{border-collapse:collapse;width:100%}#ec-log th{position:sticky;top:0;background:#eee;text-align:left;padding:6px 8px;font-weight:600}#ec-log td{padding:5px 8px;border-top:1px solid #eee;white-space:nowrap}' +
+      '#ec-log tr.k-open td:nth-child(7){color:#b3261e;font-weight:600}#ec-log tr.k-over td:nth-child(7){color:#b3261e;font-weight:700}#ec-log tr.k-done td:nth-child(7){color:#2e7d32}#ec-log input.ec-val{font:13px sans-serif;padding:2px 6px;border:1px solid #bbb;border-radius:4px;width:80px}#ec-log a{color:#1a5fb4}' +
+      '#ec-log-btn{position:fixed;left:18px;bottom:18px;z-index:2147483644;background:#4b4540;color:#fff;border:0;border-radius:6px;padding:9px 13px;font:600 13px sans-serif;box-shadow:0 2px 8px rgba(0,0,0,.35);cursor:pointer}';
     ui().append(st);
     drawer = document.createElement('div');
-    drawer.id = 'wre-log';
+    drawer.id = 'ec-log';
     drawer.style.display = 'none';
     const bar = document.createElement('div'); bar.className = 'bar';
-    const head = document.createElement('b'); head.className = 'wre-log-head';
+    const head = document.createElement('b'); head.className = 'ec-log-head';
     const search = document.createElement('input'); search.placeholder = 'Find PO, street, JN or invoice #'; search.size = 28;
     search.addEventListener('input', () => { filter = search.value; renderDrawer(); });
     const all = document.createElement('button'); all.textContent = 'Show all'; all.addEventListener('click', () => { showAll = !showAll; all.textContent = showAll ? 'Open POs only' : 'Show all'; renderDrawer(); });
@@ -853,11 +862,11 @@
     const csv = document.createElement('button'); csv.textContent = 'Export CSV'; csv.addEventListener('click', exportCsv);
     const close = document.createElement('button'); close.textContent = 'Close'; close.addEventListener('click', () => { drawerOpen = false; drawer.style.display = 'none'; });
     bar.append(head, search, all, refresh, csv, close);
-    const body = document.createElement('div'); body.className = 'wre-log-body';
+    const body = document.createElement('div'); body.className = 'ec-log-body';
     drawer.append(bar, body);
     ui().append(drawer);
   }
-  const logBtn = (() => { const b = document.createElement('button'); b.id = 'wre-log-btn'; b.textContent = 'Invoice log'; b.addEventListener('click', () => { if (!drawer) buildDrawer(); drawerOpen = !drawerOpen; drawer.style.display = drawerOpen ? 'flex' : 'none'; if (drawerOpen) { renderDrawer(); refreshFeed(m => { const h = drawer.querySelector('.wre-log-head'); if (h) h.textContent = m; }).then(renderDrawer).catch(() => {}); } }); return b; })();
+  const logBtn = (() => { const b = document.createElement('button'); b.id = 'ec-log-btn'; b.textContent = 'Invoice log'; b.addEventListener('click', () => { if (!drawer) buildDrawer(); drawerOpen = !drawerOpen; drawer.style.display = drawerOpen ? 'flex' : 'none'; if (drawerOpen) { renderDrawer(); refreshFeed(m => { const h = drawer.querySelector('.ec-log-head'); if (h) h.textContent = m; }).then(renderDrawer).catch(() => {}); } }); return b; })();
 
   // badges sit in their own layer, outside Ambrose's page, lined up with each row
   const layer = document.createElement('div');
@@ -941,7 +950,7 @@
     if (!layer.isConnected) { ui().append(layer); refreshFeed().then(() => badges.forEach((b, r) => paintInvoice(b, (rowText(r).match(/^(\d{8}-\d{2,3})/) || [])[1]))).catch(() => {}); }
     if (classic === false && !logBtn.isConnected) ui().append(logBtn);
     if (classic && logBtn.isConnected) logBtn.remove();
-    const rows = [...document.querySelectorAll('tbody tr')].filter(r => !r.closest('#wre-log') && /^\d{8}\b/.test(rowText(r)));
+    const rows = [...document.querySelectorAll('tbody tr')].filter(r => !r.closest('#ec-log') && /^\d{8}\b/.test(rowText(r)));
     const seen = new Set();
     const table = rows[0] && rows[0].closest('table');
     const tr = table && table.getBoundingClientRect();
@@ -971,7 +980,7 @@
   if (host === 'tradiesadmin.ambroseconstruct.com.au') setInterval(() => { if (!document.hidden) paintLabour(); }, 1000);
 
   // Ambrose admin PO pages and Tradies Web booking pages get "Open in AroFlo". Light check once a second.
-  const btn = makeBtn('wre-jump-af', 'Open in AroFlo', 18, openInAroFlo);
+  const btn = makeBtn('ec-jump-af', 'Open in AroFlo', 18, openInAroFlo);
   const onAmb = host === 'tradiesadmin.ambroseconstruct.com.au';
   const wanted = () => onAmb
     ? /^\/PurchaseOrders\/[a-f0-9]{20,}/i.test(location.pathname)
@@ -979,7 +988,7 @@
 
   // the invoice panel on a single Ambrose PO page: this PO's value, what's been invoiced against it, what's left
   const panel = document.createElement('div');
-  panel.id = 'wre-po-panel';
+  panel.id = 'ec-po-panel';
   panel.style.cssText = 'position:fixed;right:18px;bottom:60px;z-index:2147483645;max-width:360px;background:#fff;color:#222;border-radius:6px;box-shadow:0 2px 12px rgba(0,0,0,.35);font:13px/1.45 sans-serif;overflow:hidden';
   function paintPanel() {
     const po = capturePoPage();
@@ -1014,7 +1023,7 @@
     if (classic === null) isClassic(); // PC or phone mode, worked out once per page
     const w = wanted();
     if (w && !btn.isConnected) ui().append(btn);
-    if (!w && btn.isConnected) { btn.remove(); byId('wre-jump-pick')?.remove(); }
+    if (!w && btn.isConnected) { btn.remove(); byId('ec-jump-pick')?.remove(); }
     if (onAmb) { if (w) { try { paintPanel(); } catch (e) {} } else if (panel.isConnected) panel.remove(); }
   }, 1000);
 })();

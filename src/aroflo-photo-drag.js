@@ -1,16 +1,27 @@
 // ==UserScript==
 // @name         AroFlo to Ambrose photo drag
-// @namespace    wre
-// @version      1.5
+// @namespace    ec
+// @version      1.6
 // @description  Drag photos straight from AroFlo into upload boxes (Ambrose, Tradies Web etc), no downloading
 // @match        *://*/*
 // @exclude      *://*.aroflo.com/*
 // @grant        GM_xmlhttpRequest
+// @grant        GM_getValue
+// @grant        GM_setValue
+// @grant        GM_listValues
+// @grant        GM_deleteValue
 // @connect      *
 // @run-at       document-start
-// @updateURL    https://raw.githubusercontent.com/Badseed26/wre-userscripts/main/aroflo-photo-drag.user.js
-// @downloadURL  https://raw.githubusercontent.com/Badseed26/wre-userscripts/main/aroflo-photo-drag.user.js
+// @updateURL    https://raw.githubusercontent.com/Badseed26/ec-userscripts/main/aroflo-photo-drag.user.js
+// @downloadURL  https://raw.githubusercontent.com/Badseed26/ec-userscripts/main/aroflo-photo-drag.user.js
 // ==/UserScript==
+
+// ---------- one off (18/11/2026): moves this device's saved data over from the old names. Take this block out once every device has run it ----------
+try {
+  const nn = k => k.replace(/wre/g, 'ec').replace(/Wre/g, 'Ec').replace(/WRE/g, 'EC'), old = /(^|[^A-Za-z])(wre|Wre|WRE)/;
+  if (typeof GM_listValues == 'function') for (const k of GM_listValues()) if (old.test(k)) { const n = nn(k); if (GM_getValue(n, undefined) === undefined) GM_setValue(n, GM_getValue(k)); GM_deleteValue(k); }
+  if (/aroflo|ambrose|outlook|cnw|tradezone/.test(location.hostname)) for (const k of Object.keys(localStorage)) if (old.test(k)) { const n = nn(k); if (localStorage.getItem(n) == null) localStorage.setItem(n, localStorage.getItem(k)); localStorage.removeItem(k); }
+} catch (e) {}
 
 (function () {
   'use strict';
@@ -18,10 +29,10 @@
   // ---------- helpers ----------
   function toast(msg, bad) {
     if (!document.body) return;
-    let el = document.getElementById('wre-drag-toast');
+    let el = document.getElementById('ec-drag-toast');
     if (!el) {
       el = document.createElement('div');
-      el.id = 'wre-drag-toast';
+      el.id = 'ec-drag-toast';
       el.style.cssText = 'position:fixed;bottom:20px;right:20px;z-index:2147483647;padding:10px 14px;border-radius:6px;font:14px sans-serif;color:#fff;box-shadow:0 2px 8px rgba(0,0,0,.3);transition:opacity .3s;pointer-events:none';
       document.documentElement.appendChild(el);
     }
@@ -115,9 +126,9 @@
 
   function outline(el) {
     if (outlined === el) return;
-    if (outlined) outlined.style.outline = outlined._wreOutline || '';
+    if (outlined) outlined.style.outline = outlined._ecOutline || '';
     outlined = el;
-    if (el) { el._wreOutline = el.style.outline; el.style.outline = '3px dashed #e8731a'; }
+    if (el) { el._ecOutline = el.style.outline; el.style.outline = '3px dashed #e8731a'; }
   }
 
   // Anything dragged from a web page (it carries a link). Chrome also tags photo drags as "Files",
