@@ -25,7 +25,7 @@ import urllib.parse
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = "2.8"
+VERSION = "2.9"
 HERE = os.path.dirname(os.path.abspath(__file__))
 RAW = "https://raw.githubusercontent.com/Badseed26/ec-userscripts/%s/"
 LATEST = "https://api.github.com/repos/Badseed26/ec-userscripts/commits/main"
@@ -934,12 +934,12 @@ def move_old_names():
         log("Couldn't move the start up file: %s" % e)
     try:
         if ahk_running(old + "-clipboard-brain.ahk"):
+            if not os.path.exists(brain_path()):
+                write_if_changed(brain_path(), fetch(BRAIN, latest_ref()))  # get the new one first, so it's never left off
             ps = ("Get-CimInstance Win32_Process | Where-Object { $_.Name -like 'AutoHotkey*' -and "
                   "$_.CommandLine -like ('*' + $env:DP_AHK + '*') } | ForEach-Object { Stop-Process -Id $_.ProcessId }")
             subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, text=True, timeout=30,
                            env=dict(os.environ, DP_AHK=old + "-clipboard-brain.ahk"), creationflags=0x08000000)
-            if not os.path.exists(brain_path()):
-                write_if_changed(brain_path(), fetch(BRAIN, latest_ref()))
             os.startfile(brain_path())
             log("Swapped Clipboard Brain over to the new file")
     except Exception as e:
