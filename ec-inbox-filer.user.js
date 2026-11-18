@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EC Inbox Filer
 // @namespace    ec
-// @version      0.9.83
+// @version      0.9.84
 // @description  Watches the shared Outlook for builder POs, revised POs and Energex safety advice, reads them with Claude Sonnet and files them onto the right AroFlo task. Unmatched ones, dates to book and anything odd go to follow ups. Runs only in the two filer tabs (Outlook and AroFlo opened with #ec-filer).
 // @match        https://outlook.cloud.microsoft/*
 // @match        https://outlook.office.com/*
@@ -31,7 +31,7 @@
   // Live updates (23/10): Tampermonkey only checks for a new version every few hours. This checks the repo's latest commit every
   // 2 min (free when nothing's changed) and keeps the newest code here, so a push runs on the next page load. If the new code needs
   // a permission this install hasn't got, or this browser won't run it, the built in copy below runs like before.
-  const __ecName = "ec-inbox-filer", __ecVer = "0.9.83", __ecHave = new Set(["// @connect api.anthropic.com", "// @connect api.github.com", "// @connect api.todoist.com", "// @connect files.todoist.com", "// @connect production-reportapi.ambrosebuilding.com.au", "// @connect raw.githubusercontent.com", "// @grant GM_deleteValue", "// @grant GM_getValue", "// @grant GM_listValues", "// @grant GM_openInTab", "// @grant GM_registerMenuCommand", "// @grant GM_setValue", "// @grant GM_xmlhttpRequest", "// @grant unsafeWindow", "// @match https://office.aroflo.com/*", "// @match https://outlook.cloud.microsoft/*", "// @match https://outlook.office.com/*", "// @match https://outlook.office365.com/*", "// @run-at document-start"]);
+  const __ecName = "ec-inbox-filer", __ecVer = "0.9.84", __ecHave = new Set(["// @connect api.anthropic.com", "// @connect api.github.com", "// @connect api.todoist.com", "// @connect files.todoist.com", "// @connect production-reportapi.ambrosebuilding.com.au", "// @connect raw.githubusercontent.com", "// @grant GM_deleteValue", "// @grant GM_getValue", "// @grant GM_listValues", "// @grant GM_openInTab", "// @grant GM_registerMenuCommand", "// @grant GM_setValue", "// @grant GM_xmlhttpRequest", "// @grant unsafeWindow", "// @match https://office.aroflo.com/*", "// @match https://outlook.cloud.microsoft/*", "// @match https://outlook.office.com/*", "// @match https://outlook.office365.com/*", "// @run-at document-start"]);
   const __ecInfo0 = typeof GM_info != 'undefined' ? GM_info : null;
   const __ecSay = m => { try { console.log('[live update] ' + __ecName + ': ' + m); } catch (e) {} };
   const __ecCmp = (a, b) => { const x = String(a).split('.').map(Number), y = String(b).split('.').map(Number); for (let i = 0; i < Math.max(x.length, y.length); i++) { const d = (x[i] || 0) - (y[i] || 0); if (d) return d; } return 0; };
@@ -82,7 +82,7 @@
   }
   if (window.top === window.self) { __ecCheck(); setInterval(__ecCheck, 2 * 60e3 + 5000); }
   if (__ecLive()) return;
-  // ---------- the built in copy (src/ec-inbox-filer.js at 0.9.83) ----------
+  // ---------- the built in copy (src/ec-inbox-filer.js at 0.9.84) ----------
 
 // ---------- one off (18/11/2026): moves this device's saved data over from the old names. Take this block out once every device has run it ----------
 try {
@@ -181,7 +181,8 @@ const shortStreet = s => String(s || '').replace(/\b(Street|Road|Drive|Avenue|Te
 // Last 25 log lines go on the Inbox filer log task so the dashboard can show them straight off. Pushed when something's
 // changed, or every 10 min as a heartbeat, by whichever filer tab gets there first.
 async function pushLog() {
-  if (!tdToken() || gget('wfDev', {}).ok === false) return; // a device standing by doesn't write over the running one's log const l = gget('wfLog', []); const last = l[l.length - 1] || '';
+  // a device standing by doesn't write over the running one's log
+  if (!tdToken() || gget('wfDev', {}).ok === false) return; const l = gget('wfLog', []); const last = l[l.length - 1] || '';
   const at = gget('wfLogPushAt', 0); if (now() - at < 25e3) return;
   if (last == gget('wfLogPushed', '') && now() - at < 10 * 60e3) return;
   gset('wfLogPushAt', now());
