@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EC Inbox Filer
 // @namespace    ec
-// @version      0.9.85
+// @version      0.9.86
 // @description  Watches the shared Outlook for builder POs, revised POs and Energex safety advice, reads them with Claude Sonnet and files them onto the right AroFlo task. Unmatched ones, dates to book and anything odd go to follow ups. Runs only in the two filer tabs (Outlook and AroFlo opened with #ec-filer).
 // @match        https://outlook.cloud.microsoft/*
 // @match        https://outlook.office.com/*
@@ -31,7 +31,7 @@
   // Live updates (23/10): Tampermonkey only checks for a new version every few hours. This checks the repo's latest commit every
   // 2 min (free when nothing's changed) and keeps the newest code here, so a push runs on the next page load. If the new code needs
   // a permission this install hasn't got, or this browser won't run it, the built in copy below runs like before.
-  const __ecName = "ec-inbox-filer", __ecVer = "0.9.85", __ecHave = new Set(["// @connect api.anthropic.com", "// @connect api.github.com", "// @connect api.todoist.com", "// @connect files.todoist.com", "// @connect production-reportapi.ambrosebuilding.com.au", "// @connect raw.githubusercontent.com", "// @grant GM_deleteValue", "// @grant GM_getValue", "// @grant GM_listValues", "// @grant GM_openInTab", "// @grant GM_registerMenuCommand", "// @grant GM_setValue", "// @grant GM_xmlhttpRequest", "// @grant unsafeWindow", "// @match https://office.aroflo.com/*", "// @match https://outlook.cloud.microsoft/*", "// @match https://outlook.office.com/*", "// @match https://outlook.office365.com/*", "// @run-at document-start"]);
+  const __ecName = "ec-inbox-filer", __ecVer = "0.9.86", __ecHave = new Set(["// @connect api.anthropic.com", "// @connect api.github.com", "// @connect api.todoist.com", "// @connect files.todoist.com", "// @connect production-reportapi.ambrosebuilding.com.au", "// @connect raw.githubusercontent.com", "// @grant GM_deleteValue", "// @grant GM_getValue", "// @grant GM_listValues", "// @grant GM_openInTab", "// @grant GM_registerMenuCommand", "// @grant GM_setValue", "// @grant GM_xmlhttpRequest", "// @grant unsafeWindow", "// @match https://office.aroflo.com/*", "// @match https://outlook.cloud.microsoft/*", "// @match https://outlook.office.com/*", "// @match https://outlook.office365.com/*", "// @run-at document-start"]);
   const __ecInfo0 = typeof GM_info != 'undefined' ? GM_info : null;
   const __ecSay = m => { try { console.log('[live update] ' + __ecName + ': ' + m); } catch (e) {} };
   const __ecCmp = (a, b) => { const x = String(a).split('.').map(Number), y = String(b).split('.').map(Number); for (let i = 0; i < Math.max(x.length, y.length); i++) { const d = (x[i] || 0) - (y[i] || 0); if (d) return d; } return 0; };
@@ -82,7 +82,7 @@
   }
   if (window.top === window.self) { __ecCheck(); setInterval(__ecCheck, 2 * 60e3 + 5000); }
   if (__ecLive()) return;
-  // ---------- the built in copy (src/ec-inbox-filer.js at 0.9.85) ----------
+  // ---------- the built in copy (src/ec-inbox-filer.js at 0.9.86) ----------
 
 // ---------- one off (18/11/2026): moves this device's saved data over from the old names. Take this block out once every device has run it ----------
 try {
@@ -685,7 +685,8 @@ if (ON_MAIL) {
     P.regrab = 0; gset('wfPending', P);
     await goInbox(); const el = await findRowDeep(o => keyOf(o) == P.rowKey);
     if (el) { const b0 = bodyOf(); el.click(); await waitFor(() => bodyOf().length > 0 && bodyOf() != b0, 8000); await quiet(300, 3000);
-      const b64 = P.pdfName ? await grabPdf(P.pdfName) : null; const f = b64 ? pdfFault(b64) : 'a second grab got nothing';
+      if (P.pdfName) { const card = () => { const R0 = rp(); return !!R0 && [...R0.querySelectorAll('[title]')].some(x => x.getAttribute('title') == P.pdfName); }; await waitFor(card, 15000); }
+      const b64 = P.pdfName ? await grabPdf(P.pdfName) : null; const f = b64 ? pdfFault(b64) : 'got nothing twice, the second on a fresh page';
       if (b64 && !f) { P.pdfKey = 'wfPdf_' + P.id; gset(P.pdfKey, b64); log('Grabbed the PDF again, it\'s whole this time: ' + P.pdfName); } else { P.pdfBad = P.pdfBad || f; log('Grabbed the PDF again and it\'s still no good (' + f + '): ' + P.pdfName); }
       if (P.wasUnread) { await park(); await markUnread(P.rowKey); } }
     else { P.pdfBad = P.pdfBad || 'couldn\'t find the email again to grab it'; log('Couldn\'t find the email again to grab its PDF: ' + P.info.subject.slice(0, 60)); }
@@ -751,14 +752,16 @@ if (ON_MAIL) {
     // 30/10: a FieldViser email's PDF is the report itself (the skip list above drops anything called report)
     const fvPdf = FV_RE.test(info.from + ' ' + p.head) ? (info.pdfs.find(n => /report/i.test(n)) || info.pdfs[0] || '') : '';
     const pick = fvPdf || sched || okPdf.find(n => /purchase order|work order|\bpo\b|\bpo[\s_-]?\d|safety advice|variation|\bwo\b/i.test(n)) || (okPdf.length == 1 ? okPdf[0] : okPdf.find(n => /\d{4,}/.test(n)) || '');
-    let pdfKey = '';
-    if (pick) { const b64 = await grabPdf(pick); if (b64) { pdfKey = 'wfPdf_' + id; gset(pdfKey, b64); } else log('Couldn\'t grab the PDF on ' + p.head.slice(0, 60)); }
+    let pdfKey = '', regrab = 0;
+    // 18/11: the TV missed Whistle Bird's PO PDF on the first go and got it straight away on the next. So a grab that gets
+    // nothing reloads and has one more go on a fresh page (one preview per page load) before it's an error.
+    if (pick) { const b64 = await grabPdf(pick); if (b64) { pdfKey = 'wfPdf_' + id; gset(pdfKey, b64); } else { regrab = 1; log('Couldn\'t grab the PDF on ' + p.head.slice(0, 60) + ', reloading to try again'); } }
     // every other PDF and photo on the email goes on the task too (19/10)
     const atts = [], more = []; await grabRest(info.pdfs.filter(n => n != pick).concat(info.imgs || []), id, atts, more);
     if (wasUnread) { await park(); const ok = await markUnread(key); if (!ok) log('!! couldn\'t put back to unread: ' + p.head.slice(0, 60)); }
-    gset('wfPending', { tab: tabId(), at: now(), id, key: test ? 'test|' + fullKey : fullKey, rowKey: key, emailAt: test ? 0 : (rowTime(p.when) || new Date()).getTime(), builder: sd.builder, info, pdfKey, pdfName: pick, sched: !!sched, atts, more, moreTries: 0, wasUnread, test: !!test, live: !!(test && test.live), as: (test && test.as) || null });
+    gset('wfPending', { tab: tabId(), at: now(), id, key: test ? 'test|' + fullKey : fullKey, rowKey: key, emailAt: test ? 0 : (rowTime(p.when) || new Date()).getTime(), builder: sd.builder, info, pdfKey, pdfName: pick, sched: !!sched, atts, more, moreTries: 0, wasUnread, test: !!test, live: !!(test && test.live), as: (test && test.as) || null, regrab, regrabbed: regrab });
     markSeen(rowKey2(p));
-    if (pdfKey || atts.length || more.length) { reloading = true; status('reloading after the preview'); await sleep(500); location.reload(); return true; }
+    if (pdfKey || atts.length || more.length || regrab) { reloading = true; status('reloading after the preview'); await sleep(500); location.reload(); return true; }
     return await finishPending();
   }
 
@@ -1629,7 +1632,7 @@ if (ON_AF) {
     const errFu = async msg => { if (!job.dry) await safeFu({ sec: 'check', key: 'err-' + job.id, p1: true, due: ymd(new Date()), title: 'Filer: ' + msg.slice(0, 80), desc: 'Email: ' + job.info.subject + '\nFrom ' + job.info.from + ', ' + job.info.date + (job.pdfKey ? '\nPDF attached below.' : '') + (job.target ? afLine(job.target.jn, job.target.href) : ''), pdf: job.pdfKey && gget(job.pdfKey, '') ? { name: fileName(job), b64: gget(job.pdfKey, '') } : null }); return fin([msg], true); };
 
     if (/^(po|updated_po)$/.test(x.kind) && !job.pdfKey && /^\s*(re|fw|fwd)\s*:/i.test(job.info.subject || '')) return errFu('Builder reply on PO ' + (x.po_full || '') + ' thread with no PDF, read it: ' + (x.summary || '').slice(0, 60));
-    if (/^(po|updated_po|esa)$/.test(x.kind) && !job.pdfKey) return errFu((x.kind == 'esa' ? 'Energex safety advice' : 'PO ' + (x.po_full || '')) + (job.pdfBad ? ': the PDF came through broken (' + job.pdfBad + ')' : ': couldn\'t grab the PDF out of the email'));
+    if (/^(po|updated_po|esa)$/.test(x.kind) && !job.pdfKey) return errFu((x.kind == 'esa' ? 'Energex safety advice' : 'PO ' + (x.po_full || '')) + (job.pdfBad ? (/got nothing/.test(job.pdfBad) ? ': couldn\'t grab the PDF out of the email (' + job.pdfBad + ')' : ': the PDF came through broken (' + job.pdfBad + ')') : ': couldn\'t grab the PDF out of the email'));
     if (x.kind == 'esa') {
       const st = x.address && x.address.street; if (!st) return errFu('ESA with no address I could read');
       if (!job.target) {
@@ -1652,7 +1655,7 @@ if (ON_AF) {
     // else Errors / to check with a button per task on the dashboard, and the pick comes back through Try again (use: JN).
     if (x.kind == 'fv_report') {
       const st = x.address && x.address.street, T = fvType(x.report_type);
-      if (!job.pdfKey) return errFu(T.name + (st ? ' for ' + shortStreet(st) : '') + (job.pdfBad ? ': the PDF came through broken (' + job.pdfBad + ')' : ': couldn\'t grab the PDF out of the email'));
+      if (!job.pdfKey) return errFu(T.name + (st ? ' for ' + shortStreet(st) : '') + (job.pdfBad ? (/got nothing/.test(job.pdfBad) ? ': couldn\'t grab the PDF out of the email (' + job.pdfBad + ')' : ': the PDF came through broken (' + job.pdfBad + ')') : ': couldn\'t grab the PDF out of the email'));
       if (!job.target) {
         let pick = null, how = '', open = [];
         if (job.useJn) { const r = await findJn(job.useJn); if (!r || !r.href) return errFu(T.name + ': JN ' + job.useJn + ' isn\'t in AroFlo'); if (/Archived/i.test(r.status || '')) return errFu(T.name + ': JN ' + job.useJn + ' is archived, AroFlo won\'t take it'); pick = r; how = 'you picked it'; }
