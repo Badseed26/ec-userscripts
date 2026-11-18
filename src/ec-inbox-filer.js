@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EC Inbox Filer
 // @namespace    ec
-// @version      0.9.82
+// @version      0.9.83
 // @description  Watches the shared Outlook for builder POs, revised POs and Energex safety advice, reads them with Claude Sonnet and files them onto the right AroFlo task. Unmatched ones, dates to book and anything odd go to follow ups. Runs only in the two filer tabs (Outlook and AroFlo opened with #ec-filer).
 // @match        https://outlook.cloud.microsoft/*
 // @match        https://outlook.office.com/*
@@ -121,7 +121,7 @@ const shortStreet = s => String(s || '').replace(/\b(Street|Road|Drive|Avenue|Te
 // Last 25 log lines go on the Inbox filer log task so the dashboard can show them straight off. Pushed when something's
 // changed, or every 10 min as a heartbeat, by whichever filer tab gets there first.
 async function pushLog() {
-  if (!tdToken()) return; const l = gget('wfLog', []); const last = l[l.length - 1] || '';
+  if (!tdToken() || gget('wfDev', {}).ok === false) return; // a device standing by doesn't write over the running one's log const l = gget('wfLog', []); const last = l[l.length - 1] || '';
   const at = gget('wfLogPushAt', 0); if (now() - at < 25e3) return;
   if (last == gget('wfLogPushed', '') && now() - at < 10 * 60e3) return;
   gset('wfLogPushAt', now());
@@ -129,7 +129,7 @@ async function pushLog() {
   // second line: what each tab's chip says and how long ago, so a tab that's quietly stuck shows on the dashboard (19/10)
   const tab = k => { const x = gget('wfState_' + k, {}); return (x.msg || '?') + (x.at ? ' (' + Math.round((now() - x.at) / 60e3) + ' min ago' + (x.lag || '') + ')' : ''); };
   const reads = gget('wfReads_' + ymd(new Date()), 0), spend = (gget('wfSpend', {})[ymd(new Date()).slice(0, 7)] || 0);
-  try { await td('POST', 'tasks/' + LOG_TASK, { description: 'Filer ' + VER + ', ' + st + ', ' + reads + ' of ' + MAX_READS_DAY + ' reads today, US$' + spend.toFixed(2) + ' this month, last seen ' + new Date().toLocaleString('en-AU', { hour12: true }).replace(',', '') + (WT.ok() ? '' : ' (worker timers off)') + '\nOutlook tab: ' + tab('mail') + ' | AroFlo tab: ' + tab('af') + (gget('wfNewest', 0) ? ' | Newest email: ' + new Date(gget('wfNewest', 0)).toLocaleString('en-AU', { hour12: true }).replace(',', '') : '') + '\n\n' + l.slice(-25).reverse().join('\n') }); gset('wfLogPushed', last); }
+  try { await td('POST', 'tasks/' + LOG_TASK, { description: 'Filer ' + VER + ', ' + st + ', ' + reads + ' of ' + MAX_READS_DAY + ' reads today, US$' + spend.toFixed(2) + ' this month, last seen ' + new Date().toLocaleString('en-AU', { hour12: true }).replace(',', '') + (WT.ok() ? '' : ' (worker timers off)') + ' (on the ' + DEVICE + ')' + '\nOutlook tab: ' + tab('mail') + ' | AroFlo tab: ' + tab('af') + (gget('wfNewest', 0) ? ' | Newest email: ' + new Date(gget('wfNewest', 0)).toLocaleString('en-AU', { hour12: true }).replace(',', '') : '') + '\n\n' + l.slice(-25).reverse().join('\n') }); gset('wfLogPushed', last); }
   catch (e) { try { console.log('[EC filer] log push failed', e.message); } catch (x) {} }
 }
 function log(msg) { const l = gget('wfLog', []); l.push(new Date().toLocaleString('en-AU', { hour12: true }).replace(',', '') + ' ' + (ON_MAIL ? '[mail] ' : '[af] ') + msg); while (l.length > 300) l.shift(); gset('wfLog', l); try { console.log('[EC filer]', msg); } catch (e) {} paint(); }
@@ -377,6 +377,38 @@ try {
 if (/#ec-filer/.test(location.hash)) { try { sessionStorage.setItem('wfRole', '1'); } catch (e) {} }
 const tabId = () => { let t = ss('wfTabId'); if (!t) { t = 't' + now() + Math.random().toString(36).slice(2, 6); ss('wfTabId', t); } return t; };
 const IS_FILER = (() => { try { return sessionStorage.getItem('wfRole') === '1'; } catch (e) { return false; } })();
+
+// ---------- which device runs the filer (18/11) ----------
+// The filer can run on the PC or the TV, never both (every PO would get filed twice). Whoever's running ticks the
+// "* Filer device" task in job tracker > Inbox filer settings every minute. A device that sees someone else's tick under
+// 3 min old stands by and says who has it. A device that dies frees it 3 min later. The TV app tells the script it's the TV.
+const DEV_TASK = '6j3H69rH7Cj9858X';
+const DEVICE = String(W.__ecDevice || gget('ecDeviceName', 'PC'));
+const devId = () => { let d = gget('ecDeviceId', ''); if (!d) { d = DEVICE.toLowerCase() + '-' + Math.random().toString(36).slice(2, 8); gset('ecDeviceId', d); } return d; };
+const devTime = t => new Date(t).toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit' });
+async function deviceOk() {
+  const S = gget('wfDev', {});
+  // one tab asks Todoist about once a minute, the other goes by what it found
+  if (now() - (S.at || 0) < 50e3) { if (S.ok === false) status('standing by: the filer is running on the ' + S.other, true); return S.ok === true; }
+  gset('wfDev', Object.assign({}, S, { at: now() }));
+  try {
+    const t = await td('GET', 'tasks/' + DEV_TASK); const d = String((t && t.description) || '');
+    const id = (d.match(/^id: (\S+)$/m) || [])[1], last = +((d.match(/^last: (\d+)$/m) || [])[1] || 0), since = +((d.match(/^since: (\d+)$/m) || [])[1] || 0);
+    const who = (d.match(/^device: (.+)$/m) || [])[1] || 'another device';
+    if (id && id != devId() && now() - last < 180e3) {
+      if (S.ok !== false || S.other != who) log('Standing by: the filer is running on the ' + who + ' (last check ' + devTime(last) + ')');
+      gset('wfDev', { at: now(), ok: false, other: who }); status('standing by: the filer is running on the ' + who, true); return false;
+    }
+    const from = id == devId() && since && now() - last < 180e3 ? since : now();
+    await td('POST', 'tasks/' + DEV_TASK, { content: '* Filer device: ' + DEVICE, description: 'Running on the ' + DEVICE + ' since ' + devTime(from) + ', last check ' + devTime(now()) + '. Don\'t edit.\n\ndevice: ' + DEVICE + '\nid: ' + devId() + '\nsince: ' + from + '\nlast: ' + now() });
+    if (S.ok !== true) log('This device (' + DEVICE + ') has the filer');
+    gset('wfDev', { at: now(), ok: true, okAt: now() }); return true;
+  } catch (e) {
+    // Todoist hiccup: keep doing what it was doing for up to 3 min, then stand by
+    const keep = S.ok === true && now() - (S.okAt || 0) < 180e3;
+    gset('wfDev', Object.assign({}, S, { at: now() - 30e3, ok: keep ? true : S.ok })); if (!keep) status('can\'t check which device has the filer: ' + e.message, true); return keep;
+  }
+}
 // A "Leave site?" box stops the filer's own reloads dead and the tab sits there for hours. The filer tabs are only for the
 // filer, so the page doesn't get to ask (23/10).
 if (IS_FILER) { try { const ael = W.EventTarget.prototype.addEventListener; W.EventTarget.prototype.addEventListener = function (t, f, o) { if (t === 'beforeunload' && (this === W || this === window)) return; return ael.call(this, t, f, o); }; Object.defineProperty(W, 'onbeforeunload', { configurable: true, get: () => null, set: () => {} }); } catch (e) {} }
@@ -709,6 +741,7 @@ if (ON_MAIL) {
       const lk = gget('wfMailLock', null); const me = tabId();
       if (lk && lk.tab !== me && now() - lk.at < 90e3) { status('another Outlook filer tab is running'); return; }
       gset('wfMailLock', { tab: me, at: now() });
+      if (!(await deviceOk())) return;
       const R = await rules(); if (R.paused) { if (!gget('wfWasPaused', 0)) gset('wfWasPaused', now()); status(R.onLeave ? 'paused till ' + dShort(R.pauseTo) : 'paused'); return; }
       // Only a long pause (leave) moves the start so weeks of backlog don't get filed. A short one (pausing to install a version,
       // 19/10) carries on where it was, or mail that came in during the pause gets skipped for good.
@@ -1990,6 +2023,7 @@ if (ON_AF) {
       if (now() - gget('wfSessAt', 0) > 15 * 60e3) { gset('wfSessAt', now());
         try { const r = await fetch('/ims/Site/Home/index.cfm', { credentials: 'include' }); const h = await r.text(); gset('wfSessOut', /login|signin|logon/i.test(r.url) || (/type=["']?password/i.test(h) && !/Calendar/.test(h)) ? 1 : 0); } catch (e) {} }
       if (gget('wfSessOut', 0) || /login|signin/i.test(location.pathname) || !document.querySelector('a[href*="Calendar"],#topMenu,.afTopNav,nav')) { if (gget('wfSessOut', 0)) gset('wfSessAt', now() - 13 * 60e3); /* signed out: look again in 2 min */ status('AroFlo looks signed out', true); await safeFu({ sec: 'check', key: 'af-signed-out-' + ymd(new Date()), p1: true, due: ymd(new Date()), title: 'Filer: AroFlo is signed out on your PC', desc: 'Sign back in on the filer tab. Nothing gets filed till then.' }); return; }
+      if (!(await deviceOk())) return;
       const R = await rules(); if (R.paused) { status('paused'); return; }
       if (R.dry === false && !gget('wfLiveAt', 0)) gset('wfLiveAt', now());
       // a job another tab picked up in the last 3 min is theirs (resumeOp keeps the claim fresh while its pages load)
