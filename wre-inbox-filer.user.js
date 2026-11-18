@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EC Inbox Filer
 // @namespace    ec
-// @version      0.9.86
+// @version      0.9.87
 // @description  Watches the shared Outlook for builder POs, revised POs and Energex safety advice, reads them with Claude Sonnet and files them onto the right AroFlo task. Unmatched ones, dates to book and anything odd go to follow ups. Runs only in the two filer tabs (Outlook and AroFlo opened with #ec-filer).
 // @match        https://outlook.cloud.microsoft/*
 // @match        https://outlook.office.com/*
@@ -31,7 +31,7 @@
   // Live updates (23/10): Tampermonkey only checks for a new version every few hours. This checks the repo's latest commit every
   // 2 min (free when nothing's changed) and keeps the newest code here, so a push runs on the next page load. If the new code needs
   // a permission this install hasn't got, or this browser won't run it, the built in copy below runs like before.
-  const __ecName = "ec-inbox-filer", __ecVer = "0.9.86", __ecHave = new Set(["// @connect api.anthropic.com", "// @connect api.github.com", "// @connect api.todoist.com", "// @connect files.todoist.com", "// @connect production-reportapi.ambrosebuilding.com.au", "// @connect raw.githubusercontent.com", "// @grant GM_deleteValue", "// @grant GM_getValue", "// @grant GM_listValues", "// @grant GM_openInTab", "// @grant GM_registerMenuCommand", "// @grant GM_setValue", "// @grant GM_xmlhttpRequest", "// @grant unsafeWindow", "// @match https://office.aroflo.com/*", "// @match https://outlook.cloud.microsoft/*", "// @match https://outlook.office.com/*", "// @match https://outlook.office365.com/*", "// @run-at document-start"]);
+  const __ecName = "ec-inbox-filer", __ecVer = "0.9.87", __ecHave = new Set(["// @connect api.anthropic.com", "// @connect api.github.com", "// @connect api.todoist.com", "// @connect files.todoist.com", "// @connect production-reportapi.ambrosebuilding.com.au", "// @connect raw.githubusercontent.com", "// @grant GM_deleteValue", "// @grant GM_getValue", "// @grant GM_listValues", "// @grant GM_openInTab", "// @grant GM_registerMenuCommand", "// @grant GM_setValue", "// @grant GM_xmlhttpRequest", "// @grant unsafeWindow", "// @match https://office.aroflo.com/*", "// @match https://outlook.cloud.microsoft/*", "// @match https://outlook.office.com/*", "// @match https://outlook.office365.com/*", "// @run-at document-start"]);
   const __ecInfo0 = typeof GM_info != 'undefined' ? GM_info : null;
   const __ecSay = m => { try { console.log('[live update] ' + __ecName + ': ' + m); } catch (e) {} };
   const __ecCmp = (a, b) => { const x = String(a).split('.').map(Number), y = String(b).split('.').map(Number); for (let i = 0; i < Math.max(x.length, y.length); i++) { const d = (x[i] || 0) - (y[i] || 0); if (d) return d; } return 0; };
@@ -82,7 +82,7 @@
   }
   if (window.top === window.self) { __ecCheck(); setInterval(__ecCheck, 2 * 60e3 + 5000); }
   if (__ecLive()) return;
-  // ---------- the built in copy (src/ec-inbox-filer.js at 0.9.86) ----------
+  // ---------- the built in copy (src/ec-inbox-filer.js at 0.9.87) ----------
 
 // ---------- one off (18/11/2026): moves this device's saved data over from the old names. Take this block out once every device has run it ----------
 try {
@@ -1226,6 +1226,8 @@ if (ON_AF) {
   const bookDesc = o => 'BOOK | JN ' + o.jn + ' | PO ' + o.po + ' | rec ' + (o.rec || '') + ' | dates ' + o.dates.join(',') + ' | hold ' + (o.hold ? 'yes' : 'no') + '\n' + (o.lines || []).join('\n');
   const bookTitle = o => (o.hold ? 'On hold, builder says dates not accurate: ' : o.dates.length ? 'Book visits: ' : 'Confirm dates: ') + o.street + ' (JN ' + o.jn + (/-/.test(String(o.po)) ? ', PO -' + String(o.po).split('-')[1] : '') + ')';
   async function addToBook(job, jn, extra, link) {
+    // 19/11: plan it on the next tick, not up to 5 min later. The TV's auto run closed before the plan landed (Banyula Dr).
+    gset('wfBookAt', 0);
     const x = job.x; const base = x.po_base; let dates = [];
     // every one of our lines on the job's repair schedule, not just this PO's: it's one To book item per job (21/10)
     const ad = await ambroseDates(job.info.rec, base); if (ad) dates = ad.map(d => d.day);
@@ -1583,7 +1585,7 @@ if (ON_AF) {
         job.x.po_full = job.x.po_full || job.x.po_base || String(r.jn); await addToBook(job, r.jn, '', afLine(r.jn, r.href)); out.push('JN ' + r.jn + ' To book added: ' + dates.map(dShort).join(', ')); continue; }
       if (job.dry) { out.push('Would update JN ' + r.jn + ' To book dates to ' + dates.map(dShort).join(', ') + ' and lift any hold'); continue; }
       const m = it.description.match(BOOK_RE); const o = { jn: r.jn, po: m[2], rec: m[3], dates, hold: false, street: (it.content.match(/: (.*?) \(JN/) || [])[1] || '', lines: [BOOK_NOTE(dates) + ' From the builder\'s email ' + dShort(ymd(new Date())) + '.'].concat(setTimes(job)) };
-      await td('POST', 'tasks/' + it.id, { content: bookTitle(o), description: bookDesc(keepBits(o, it.description)) + afLine(r.jn, r.href) + '\nfiler: book-' + m[2] }); out.push('JN ' + r.jn + ' new dates ' + dates.map(dShort).join(', '));
+      await td('POST', 'tasks/' + it.id, { content: bookTitle(o), description: bookDesc(keepBits(o, it.description)) + afLine(r.jn, r.href) + '\nfiler: book-' + m[2] }); gset('wfBookAt', 0); out.push('JN ' + r.jn + ' new dates ' + dates.map(dShort).join(', '));
     }
     return out;
   }

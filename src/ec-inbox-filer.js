@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EC Inbox Filer
 // @namespace    ec
-// @version      0.9.86
+// @version      0.9.87
 // @description  Watches the shared Outlook for builder POs, revised POs and Energex safety advice, reads them with Claude Sonnet and files them onto the right AroFlo task. Unmatched ones, dates to book and anything odd go to follow ups. Runs only in the two filer tabs (Outlook and AroFlo opened with #ec-filer).
 // @match        https://outlook.cloud.microsoft/*
 // @match        https://outlook.office.com/*
@@ -1166,6 +1166,8 @@ if (ON_AF) {
   const bookDesc = o => 'BOOK | JN ' + o.jn + ' | PO ' + o.po + ' | rec ' + (o.rec || '') + ' | dates ' + o.dates.join(',') + ' | hold ' + (o.hold ? 'yes' : 'no') + '\n' + (o.lines || []).join('\n');
   const bookTitle = o => (o.hold ? 'On hold, builder says dates not accurate: ' : o.dates.length ? 'Book visits: ' : 'Confirm dates: ') + o.street + ' (JN ' + o.jn + (/-/.test(String(o.po)) ? ', PO -' + String(o.po).split('-')[1] : '') + ')';
   async function addToBook(job, jn, extra, link) {
+    // 19/11: plan it on the next tick, not up to 5 min later. The TV's auto run closed before the plan landed (Banyula Dr).
+    gset('wfBookAt', 0);
     const x = job.x; const base = x.po_base; let dates = [];
     // every one of our lines on the job's repair schedule, not just this PO's: it's one To book item per job (21/10)
     const ad = await ambroseDates(job.info.rec, base); if (ad) dates = ad.map(d => d.day);
@@ -1523,7 +1525,7 @@ if (ON_AF) {
         job.x.po_full = job.x.po_full || job.x.po_base || String(r.jn); await addToBook(job, r.jn, '', afLine(r.jn, r.href)); out.push('JN ' + r.jn + ' To book added: ' + dates.map(dShort).join(', ')); continue; }
       if (job.dry) { out.push('Would update JN ' + r.jn + ' To book dates to ' + dates.map(dShort).join(', ') + ' and lift any hold'); continue; }
       const m = it.description.match(BOOK_RE); const o = { jn: r.jn, po: m[2], rec: m[3], dates, hold: false, street: (it.content.match(/: (.*?) \(JN/) || [])[1] || '', lines: [BOOK_NOTE(dates) + ' From the builder\'s email ' + dShort(ymd(new Date())) + '.'].concat(setTimes(job)) };
-      await td('POST', 'tasks/' + it.id, { content: bookTitle(o), description: bookDesc(keepBits(o, it.description)) + afLine(r.jn, r.href) + '\nfiler: book-' + m[2] }); out.push('JN ' + r.jn + ' new dates ' + dates.map(dShort).join(', '));
+      await td('POST', 'tasks/' + it.id, { content: bookTitle(o), description: bookDesc(keepBits(o, it.description)) + afLine(r.jn, r.href) + '\nfiler: book-' + m[2] }); gset('wfBookAt', 0); out.push('JN ' + r.jn + ' new dates ' + dates.map(dShort).join(', '));
     }
     return out;
   }
