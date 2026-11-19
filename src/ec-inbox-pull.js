@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EC Inbox Pull
 // @namespace    ec
-// @version      1.9
+// @version      1.9.1
 // @description  Reads a day's Inbox and Sent Items in the shared Outlook (read only, unread emails go back to unread) and hands one compact bundle to the dashboard's inbox check. The Pull button on the dashboard starts it.
 // @match        https://outlook.cloud.microsoft/*
 // @match        https://outlook.office.com/*
@@ -156,11 +156,14 @@ const listDay = async DAY => { const t0 = Date.now(); const want = DAY == 'today
   if (atEnd() && !(await moreLoaded())) {
    // 20/11: on the TV Outlook didn't load past the newest 24 rows. Nudge it like a person would (last row into view, a
    // wheel turn) once before calling it the end, and note what the list looked like if it still won't.
+   // what the row's parents look like (TV only finds 24 rows and no scroll box, 20/11)
+   if (!LIST_DIAG) { const ch = []; let e = rowsNow()[0], k = 0; while (e && e !== document.documentElement && k < 14) { const cs = getComputedStyle(e); ch.push(e.tagName + '/' + cs.overflowY + '/' + e.clientHeight + '/' + e.scrollHeight); e = e.parentElement; k++; }
+     const se = document.scrollingElement; LIST_DIAG = 'parents ' + (ch.join(' > ') || 'none') + ' | doc ' + (se ? se.clientHeight + '/' + se.scrollHeight : '?') + ' | rows ' + rowsNow().length; }
    const sc = getSc(), last = rowsNow().slice(-1)[0];
    if (last) last.scrollIntoView({ block: 'end' });
    if (sc) sc.dispatchEvent(new WheelEvent('wheel', { deltaY: 600, bubbles: true }));
    if (await moreLoaded()) continue;
-   const x = getSc(); LIST_DIAG = 'list: ' + (x ? x.tagName + (x.className ? '.' + String(x.className).split(' ')[0] : '') + ' top ' + Math.round(x.scrollTop) + ' view ' + x.clientHeight + ' height ' + x.scrollHeight : 'no scroll box found') + ', rows ' + rowsNow().length + ', page ' + innerWidth + 'x' + innerHeight + ' dpr ' + devicePixelRatio;
+   const x = getSc(); LIST_DIAG += ' || after nudge: ' + (x ? x.tagName + (x.className ? '.' + String(x.className).split(' ')[0] : '') + ' top ' + Math.round(x.scrollTop) + ' view ' + x.clientHeight + ' height ' + x.scrollHeight : 'no scroll box found') + ', rows ' + rowsNow().length + ', page ' + innerWidth + 'x' + innerHeight + ' dpr ' + devicePixelRatio;
    stop = 'end'; break; }
   await go(getSc().scrollTop + getSc().clientHeight * (newest < want ? 0.95 : 0.7)); }
  await go(0); const all = [...seen.values()];

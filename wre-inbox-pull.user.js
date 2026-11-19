@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EC Inbox Pull
 // @namespace    ec
-// @version      1.9
+// @version      1.9.1
 // @description  Reads a day's Inbox and Sent Items in the shared Outlook (read only, unread emails go back to unread) and hands one compact bundle to the dashboard's inbox check. The Pull button on the dashboard starts it.
 // @match        https://outlook.cloud.microsoft/*
 // @match        https://outlook.office.com/*
@@ -30,7 +30,7 @@
   // Live updates (23/10): Tampermonkey only checks for a new version every few hours. This checks the repo's latest commit every
   // 2 min (free when nothing's changed) and keeps the newest code here, so a push runs on the next page load. If the new code needs
   // a permission this install hasn't got, or this browser won't run it, the built in copy below runs like before.
-  const __ecName = "ec-inbox-pull", __ecVer = "1.9", __ecHave = new Set(["// @connect 127.0.0.1", "// @connect api.github.com", "// @connect raw.githubusercontent.com", "// @grant GM.getValue", "// @grant GM_addValueChangeListener", "// @grant GM_deleteValue", "// @grant GM_getValue", "// @grant GM_listValues", "// @grant GM_openInTab", "// @grant GM_registerMenuCommand", "// @grant GM_setClipboard", "// @grant GM_setValue", "// @grant GM_xmlhttpRequest", "// @match https://*.frame.claudeusercontent.com/*", "// @match https://outlook.cloud.microsoft/*", "// @match https://outlook.office.com/*", "// @match https://outlook.office365.com/*", "// @run-at document-start"]);
+  const __ecName = "ec-inbox-pull", __ecVer = "1.9.1", __ecHave = new Set(["// @connect 127.0.0.1", "// @connect api.github.com", "// @connect raw.githubusercontent.com", "// @grant GM.getValue", "// @grant GM_addValueChangeListener", "// @grant GM_deleteValue", "// @grant GM_getValue", "// @grant GM_listValues", "// @grant GM_openInTab", "// @grant GM_registerMenuCommand", "// @grant GM_setClipboard", "// @grant GM_setValue", "// @grant GM_xmlhttpRequest", "// @match https://*.frame.claudeusercontent.com/*", "// @match https://outlook.cloud.microsoft/*", "// @match https://outlook.office.com/*", "// @match https://outlook.office365.com/*", "// @run-at document-start"]);
   const __ecInfo0 = typeof GM_info != 'undefined' ? GM_info : null;
   const __ecSay = m => { try { console.log('[live update] ' + __ecName + ': ' + m); } catch (e) {} };
   const __ecCmp = (a, b) => { const x = String(a).split('.').map(Number), y = String(b).split('.').map(Number); for (let i = 0; i < Math.max(x.length, y.length); i++) { const d = (x[i] || 0) - (y[i] || 0); if (d) return d; } return 0; };
@@ -81,7 +81,7 @@
   }
   if (window.top === window.self) { __ecCheck(); setInterval(__ecCheck, 2 * 60e3 + 5000); }
   if (__ecLive()) return;
-  // ---------- the built in copy (src/ec-inbox-pull.js at 1.9) ----------
+  // ---------- the built in copy (src/ec-inbox-pull.js at 1.9.1) ----------
 
 // ---------- one off (18/11/2026): moves this device's saved data over from the old names. Take this block out once every device has run it ----------
 try {
@@ -216,11 +216,14 @@ const listDay = async DAY => { const t0 = Date.now(); const want = DAY == 'today
   if (atEnd() && !(await moreLoaded())) {
    // 20/11: on the TV Outlook didn't load past the newest 24 rows. Nudge it like a person would (last row into view, a
    // wheel turn) once before calling it the end, and note what the list looked like if it still won't.
+   // what the row's parents look like (TV only finds 24 rows and no scroll box, 20/11)
+   if (!LIST_DIAG) { const ch = []; let e = rowsNow()[0], k = 0; while (e && e !== document.documentElement && k < 14) { const cs = getComputedStyle(e); ch.push(e.tagName + '/' + cs.overflowY + '/' + e.clientHeight + '/' + e.scrollHeight); e = e.parentElement; k++; }
+     const se = document.scrollingElement; LIST_DIAG = 'parents ' + (ch.join(' > ') || 'none') + ' | doc ' + (se ? se.clientHeight + '/' + se.scrollHeight : '?') + ' | rows ' + rowsNow().length; }
    const sc = getSc(), last = rowsNow().slice(-1)[0];
    if (last) last.scrollIntoView({ block: 'end' });
    if (sc) sc.dispatchEvent(new WheelEvent('wheel', { deltaY: 600, bubbles: true }));
    if (await moreLoaded()) continue;
-   const x = getSc(); LIST_DIAG = 'list: ' + (x ? x.tagName + (x.className ? '.' + String(x.className).split(' ')[0] : '') + ' top ' + Math.round(x.scrollTop) + ' view ' + x.clientHeight + ' height ' + x.scrollHeight : 'no scroll box found') + ', rows ' + rowsNow().length + ', page ' + innerWidth + 'x' + innerHeight + ' dpr ' + devicePixelRatio;
+   const x = getSc(); LIST_DIAG += ' || after nudge: ' + (x ? x.tagName + (x.className ? '.' + String(x.className).split(' ')[0] : '') + ' top ' + Math.round(x.scrollTop) + ' view ' + x.clientHeight + ' height ' + x.scrollHeight : 'no scroll box found') + ', rows ' + rowsNow().length + ', page ' + innerWidth + 'x' + innerHeight + ' dpr ' + devicePixelRatio;
    stop = 'end'; break; }
   await go(getSc().scrollTop + getSc().clientHeight * (newest < want ? 0.95 : 0.7)); }
  await go(0); const all = [...seen.values()];
