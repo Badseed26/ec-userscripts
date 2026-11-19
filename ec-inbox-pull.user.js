@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EC Inbox Pull
 // @namespace    ec
-// @version      1.7
+// @version      1.8
 // @description  Reads a day's Inbox and Sent Items in the shared Outlook (read only, unread emails go back to unread) and hands one compact bundle to the dashboard's inbox check. The Pull button on the dashboard starts it.
 // @match        https://outlook.cloud.microsoft/*
 // @match        https://outlook.office.com/*
@@ -30,7 +30,7 @@
   // Live updates (23/10): Tampermonkey only checks for a new version every few hours. This checks the repo's latest commit every
   // 2 min (free when nothing's changed) and keeps the newest code here, so a push runs on the next page load. If the new code needs
   // a permission this install hasn't got, or this browser won't run it, the built in copy below runs like before.
-  const __ecName = "ec-inbox-pull", __ecVer = "1.7", __ecHave = new Set(["// @connect 127.0.0.1", "// @connect api.github.com", "// @connect raw.githubusercontent.com", "// @grant GM.getValue", "// @grant GM_addValueChangeListener", "// @grant GM_deleteValue", "// @grant GM_getValue", "// @grant GM_listValues", "// @grant GM_openInTab", "// @grant GM_registerMenuCommand", "// @grant GM_setClipboard", "// @grant GM_setValue", "// @grant GM_xmlhttpRequest", "// @match https://*.frame.claudeusercontent.com/*", "// @match https://outlook.cloud.microsoft/*", "// @match https://outlook.office.com/*", "// @match https://outlook.office365.com/*", "// @run-at document-start"]);
+  const __ecName = "ec-inbox-pull", __ecVer = "1.8", __ecHave = new Set(["// @connect 127.0.0.1", "// @connect api.github.com", "// @connect raw.githubusercontent.com", "// @grant GM.getValue", "// @grant GM_addValueChangeListener", "// @grant GM_deleteValue", "// @grant GM_getValue", "// @grant GM_listValues", "// @grant GM_openInTab", "// @grant GM_registerMenuCommand", "// @grant GM_setClipboard", "// @grant GM_setValue", "// @grant GM_xmlhttpRequest", "// @match https://*.frame.claudeusercontent.com/*", "// @match https://outlook.cloud.microsoft/*", "// @match https://outlook.office.com/*", "// @match https://outlook.office365.com/*", "// @run-at document-start"]);
   const __ecInfo0 = typeof GM_info != 'undefined' ? GM_info : null;
   const __ecSay = m => { try { console.log('[live update] ' + __ecName + ': ' + m); } catch (e) {} };
   const __ecCmp = (a, b) => { const x = String(a).split('.').map(Number), y = String(b).split('.').map(Number); for (let i = 0; i < Math.max(x.length, y.length); i++) { const d = (x[i] || 0) - (y[i] || 0); if (d) return d; } return 0; };
@@ -81,7 +81,7 @@
   }
   if (window.top === window.self) { __ecCheck(); setInterval(__ecCheck, 2 * 60e3 + 5000); }
   if (__ecLive()) return;
-  // ---------- the built in copy (src/ec-inbox-pull.js at 1.7) ----------
+  // ---------- the built in copy (src/ec-inbox-pull.js at 1.8) ----------
 
 // ---------- one off (18/11/2026): moves this device's saved data over from the old names. Take this block out once every device has run it ----------
 try {
@@ -253,7 +253,12 @@ const readAll = async (list, onP) => { const out = []; const pend = [];
   if (o.wasUnread) pend.push({ r: list[k], o }); out.push(o); onP && onP(k + 1, list.length); }
  if (pend.length) { await park(); const bad = await flush(); if (bad) return { stopped: bad, out }; }
  return { out }; };
-const goFolder = async name => { const ti = [...document.querySelectorAll('[role=treeitem]')].find(t => (t.getAttribute('title') || '').startsWith(name + ' - ')); if (!ti) throw 'folder not found: ' + name; if (ti.getAttribute('aria-selected') == 'true') return 'already'; const s0 = sig(); ti.click(); await waitFor(() => { const s = sig(); return s && s != s0; }, 8000); await quiet(300, 3000); return 'ok'; };
+// 20/11: on a narrow window (the TV) Outlook folds the folder list away. Open it with its navigation pane button first,
+// like the filer does, then pick the folder (its title can be just the name there, no count).
+const folderItem = name => [...document.querySelectorAll('[role=treeitem]')].find(t => new RegExp('^' + name + '( - |$)').test(t.getAttribute('title') || ''));
+const goFolder = async name => { let ti = folderItem(name);
+ if (!ti) { const nb = [...document.querySelectorAll('button[aria-label]')].find(b => /navigation pane|folder pane/i.test(b.getAttribute('aria-label'))); if (nb) { nb.click(); await waitFor(() => !!folderItem(name), 4000); ti = folderItem(name); } }
+ if (!ti) throw 'folder not found: ' + name; if (ti.getAttribute('aria-selected') == 'true') return 'already'; const s0 = sig(); ti.click(); await waitFor(() => { const s = sig(); return s && s != s0; }, 8000); await quiet(300, 3000); return 'ok'; };
 const fixUnread = async dry => { const u0 = ss('_unread0') || [], op = ss('_opened') || []; const r = { stillUnread: 0, restored: [], failed: [], flippedBack: [], readByOthers: [], notFound: [] };
  if (!dry && rowsNow().some(isSel)) await park();
  for (const k of u0) { const el = await findRow(k); if (!el) { r.notFound.push(k); continue; } if (/^Unread/.test(el.getAttribute('aria-label'))) { r.stillUnread++; continue; }

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EC Inbox Pull
 // @namespace    ec
-// @version      1.7
+// @version      1.8
 // @description  Reads a day's Inbox and Sent Items in the shared Outlook (read only, unread emails go back to unread) and hands one compact bundle to the dashboard's inbox check. The Pull button on the dashboard starts it.
 // @match        https://outlook.cloud.microsoft/*
 // @match        https://outlook.office.com/*
@@ -193,7 +193,12 @@ const readAll = async (list, onP) => { const out = []; const pend = [];
   if (o.wasUnread) pend.push({ r: list[k], o }); out.push(o); onP && onP(k + 1, list.length); }
  if (pend.length) { await park(); const bad = await flush(); if (bad) return { stopped: bad, out }; }
  return { out }; };
-const goFolder = async name => { const ti = [...document.querySelectorAll('[role=treeitem]')].find(t => (t.getAttribute('title') || '').startsWith(name + ' - ')); if (!ti) throw 'folder not found: ' + name; if (ti.getAttribute('aria-selected') == 'true') return 'already'; const s0 = sig(); ti.click(); await waitFor(() => { const s = sig(); return s && s != s0; }, 8000); await quiet(300, 3000); return 'ok'; };
+// 20/11: on a narrow window (the TV) Outlook folds the folder list away. Open it with its navigation pane button first,
+// like the filer does, then pick the folder (its title can be just the name there, no count).
+const folderItem = name => [...document.querySelectorAll('[role=treeitem]')].find(t => new RegExp('^' + name + '( - |$)').test(t.getAttribute('title') || ''));
+const goFolder = async name => { let ti = folderItem(name);
+ if (!ti) { const nb = [...document.querySelectorAll('button[aria-label]')].find(b => /navigation pane|folder pane/i.test(b.getAttribute('aria-label'))); if (nb) { nb.click(); await waitFor(() => !!folderItem(name), 4000); ti = folderItem(name); } }
+ if (!ti) throw 'folder not found: ' + name; if (ti.getAttribute('aria-selected') == 'true') return 'already'; const s0 = sig(); ti.click(); await waitFor(() => { const s = sig(); return s && s != s0; }, 8000); await quiet(300, 3000); return 'ok'; };
 const fixUnread = async dry => { const u0 = ss('_unread0') || [], op = ss('_opened') || []; const r = { stillUnread: 0, restored: [], failed: [], flippedBack: [], readByOthers: [], notFound: [] };
  if (!dry && rowsNow().some(isSel)) await park();
  for (const k of u0) { const el = await findRow(k); if (!el) { r.notFound.push(k); continue; } if (/^Unread/.test(el.getAttribute('aria-label'))) { r.stillUnread++; continue; }
