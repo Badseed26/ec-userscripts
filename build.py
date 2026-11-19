@@ -110,7 +110,9 @@ if __name__ == '__main__':
         print('built', name + '.user.js')
         # One off (18/11/2026): copies under the old file names, so copies already installed from those links update
         # to the new script. Take this out, and delete the copies, once every device shows the new names.
-        if name.startswith('ec-'):
-            with open(os.path.join(ROOT, OLD + name[2:] + '.user.js'), 'w', encoding='utf-8', newline='\n') as fh: fh.write(build(name, src))
+        # Only for scripts that had an old name copy already (a new script never had one).
+        old = os.path.join(ROOT, OLD + name[2:] + '.user.js')
+        if name.startswith('ec-') and os.path.exists(old):
+            with open(old, 'w', encoding='utf-8', newline='\n') as fh: fh.write(build(name, src))
     import shutil
     shutil.copyfile(os.path.join(ROOT, 'ec-clipboard-brain.ahk'), os.path.join(ROOT, OLD + '-clipboard-brain.ahk'))
