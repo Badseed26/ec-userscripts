@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EC Inbox Pull
 // @namespace    ec
-// @version      1.8
+// @version      1.9
 // @description  Reads a day's Inbox and Sent Items in the shared Outlook (read only, unread emails go back to unread) and hands one compact bundle to the dashboard's inbox check. The Pull button on the dashboard starts it.
 // @match        https://outlook.cloud.microsoft/*
 // @match        https://outlook.office.com/*
@@ -30,7 +30,7 @@
   // Live updates (23/10): Tampermonkey only checks for a new version every few hours. This checks the repo's latest commit every
   // 2 min (free when nothing's changed) and keeps the newest code here, so a push runs on the next page load. If the new code needs
   // a permission this install hasn't got, or this browser won't run it, the built in copy below runs like before.
-  const __ecName = "ec-inbox-pull", __ecVer = "1.8", __ecHave = new Set(["// @connect 127.0.0.1", "// @connect api.github.com", "// @connect raw.githubusercontent.com", "// @grant GM.getValue", "// @grant GM_addValueChangeListener", "// @grant GM_deleteValue", "// @grant GM_getValue", "// @grant GM_listValues", "// @grant GM_openInTab", "// @grant GM_registerMenuCommand", "// @grant GM_setClipboard", "// @grant GM_setValue", "// @grant GM_xmlhttpRequest", "// @match https://*.frame.claudeusercontent.com/*", "// @match https://outlook.cloud.microsoft/*", "// @match https://outlook.office.com/*", "// @match https://outlook.office365.com/*", "// @run-at document-start"]);
+  const __ecName = "ec-inbox-pull", __ecVer = "1.9", __ecHave = new Set(["// @connect 127.0.0.1", "// @connect api.github.com", "// @connect raw.githubusercontent.com", "// @grant GM.getValue", "// @grant GM_addValueChangeListener", "// @grant GM_deleteValue", "// @grant GM_getValue", "// @grant GM_listValues", "// @grant GM_openInTab", "// @grant GM_registerMenuCommand", "// @grant GM_setClipboard", "// @grant GM_setValue", "// @grant GM_xmlhttpRequest", "// @match https://*.frame.claudeusercontent.com/*", "// @match https://outlook.cloud.microsoft/*", "// @match https://outlook.office.com/*", "// @match https://outlook.office365.com/*", "// @run-at document-start"]);
   const __ecInfo0 = typeof GM_info != 'undefined' ? GM_info : null;
   const __ecSay = m => { try { console.log('[live update] ' + __ecName + ': ' + m); } catch (e) {} };
   const __ecCmp = (a, b) => { const x = String(a).split('.').map(Number), y = String(b).split('.').map(Number); for (let i = 0; i < Math.max(x.length, y.length); i++) { const d = (x[i] || 0) - (y[i] || 0); if (d) return d; } return 0; };
@@ -81,7 +81,7 @@
   }
   if (window.top === window.self) { __ecCheck(); setInterval(__ecCheck, 2 * 60e3 + 5000); }
   if (__ecLive()) return;
-  // ---------- the built in copy (src/ec-inbox-pull.js at 1.8) ----------
+  // ---------- the built in copy (src/ec-inbox-pull.js at 1.9) ----------
 
 // ---------- one off (18/11/2026): moves this device's saved data over from the old names. Take this block out once every device has run it ----------
 try {
@@ -197,7 +197,7 @@ const isSel = o => o.getAttribute('aria-selected') == 'true';
 const findBy = async test => { const f = () => rowsNow().find(o => test(o.getAttribute('aria-label'))); let el = f(); if (el) return el; for (let p = 0; p < 2; p++) { if (p) await go(0); for (let i = 0; i < 60; i++) { el = f(); if (el) return el; if (atEnd()) break; await go(getSc().scrollTop + getSc().clientHeight * 0.7); } } return null; };
 const findRow = key => findBy(l => keyOf(l) == key);
 
-let DAY_ROWS = [], LATER_ROWS = [];
+let DAY_ROWS = [], LATER_ROWS = [], LIST_DIAG = '';
 // How many days back a row is: 0 = today (time only), 1-6 = this week by weekday, 8 = older (a date)
 const WDN = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const ageOf = when => { if (/^\d{1,2}:\d{2}/.test(when)) return 0; const m = when.match(/^(Sun|Mon|Tue|Wed|Thu|Fri|Sat) \d{1,2}:\d{2}/); if (m) { const b = (new Date().getDay() - WDN.indexOf(m[1]) + 7) % 7; return b || 7; } return /\d/.test(when) ? 8 : -1; };
@@ -213,7 +213,15 @@ const listDay = async DAY => { const t0 = Date.now(); const want = DAY == 'today
   const old = [...seen.values()].filter(v => !v.pinned && ageOf(v.when) > want).length;
   if (old >= 2 || (old && atEnd())) { stop = 'older'; break; }
   if (Date.now() - t0 > 60000) { stop = 'time'; break; }
-  if (atEnd() && !(await moreLoaded())) { stop = 'end'; break; }
+  if (atEnd() && !(await moreLoaded())) {
+   // 20/11: on the TV Outlook didn't load past the newest 24 rows. Nudge it like a person would (last row into view, a
+   // wheel turn) once before calling it the end, and note what the list looked like if it still won't.
+   const sc = getSc(), last = rowsNow().slice(-1)[0];
+   if (last) last.scrollIntoView({ block: 'end' });
+   if (sc) sc.dispatchEvent(new WheelEvent('wheel', { deltaY: 600, bubbles: true }));
+   if (await moreLoaded()) continue;
+   const x = getSc(); LIST_DIAG = 'list: ' + (x ? x.tagName + (x.className ? '.' + String(x.className).split(' ')[0] : '') + ' top ' + Math.round(x.scrollTop) + ' view ' + x.clientHeight + ' height ' + x.scrollHeight : 'no scroll box found') + ', rows ' + rowsNow().length + ', page ' + innerWidth + 'x' + innerHeight + ' dpr ' + devicePixelRatio;
+   stop = 'end'; break; }
   await go(getSc().scrollTop + getSc().clientHeight * (newest < want ? 0.95 : 0.7)); }
  await go(0); const all = [...seen.values()];
  LATER_ROWS = all.filter(v => !v.pinned && ageOf(v.when) >= 0 && ageOf(v.when) < want);
@@ -311,7 +319,7 @@ const buildBundle = s => {
  if (s.fix) { const f = s.fix; L.push('Read status: put back to unread ' + f.restored.length + (f.failed.length ? ' | FAILED ' + f.failed.map(k => k.slice(0, 45)).join('; ') : '') + (f.flippedBack.length ? ' | flipped back to read ' + f.flippedBack.map(k => k.slice(0, 45)).join('; ') : '') + (f.readByOthers.length ? ' | read by someone else during the run ' + f.readByOthers.map(k => k.slice(0, 45)).join('; ') : '') + (f.notFound.length ? ' | not found ' + f.notFound.length : '')); }
  L.push('Key: [U unread at start, R replied or forwarded from this inbox, A attachments] time | sender and subject | replied | signed. [Name, date time] = a quoted email header. […repeat] = text already given earlier in this bundle.');
  if (s.past) L.push('Missed day: ' + (s.laterN || 0) + ' newer inbox rows were skipped (not opened). Any thread from this day that got a reply since is dated later, so it shows in the later day\'s pull. Pull today too.');
- if (s.listStop && s.listStop != 'older') L.push('!! Listing stopped early (' + s.listStop + '): the day may be incomplete.');
+ if (s.listStop && s.listStop != 'older') L.push('!! Listing stopped early (' + s.listStop + '): the day may be incomplete.' + (LIST_DIAG ? ' (' + LIST_DIAG + ')' : ''));
  L.push('');
  L.push('===== INBOX =====');
  for (const o of s.inbox) {
