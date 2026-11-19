@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EC Inbox Filer
 // @namespace    ec
-// @version      0.9.87
+// @version      0.9.88
 // @description  Watches the shared Outlook for builder POs, revised POs and Energex safety advice, reads them with Claude Sonnet and files them onto the right AroFlo task. Unmatched ones, dates to book and anything odd go to follow ups. Runs only in the two filer tabs (Outlook and AroFlo opened with #ec-filer).
 // @match        https://outlook.cloud.microsoft/*
 // @match        https://outlook.office.com/*
@@ -2032,7 +2032,9 @@ if (ON_AF) {
       // 22/10: the page can still look signed in after AroFlo's session has timed out, so ask AroFlo itself every 15 min
       if (now() - gget('wfSessAt', 0) > 15 * 60e3) { gset('wfSessAt', now());
         try { const r = await fetch('/ims/Site/Home/index.cfm', { credentials: 'include' }); const h = await r.text(); gset('wfSessOut', /login|signin|logon/i.test(r.url) || (/type=["']?password/i.test(h) && !/Calendar/.test(h)) ? 1 : 0); } catch (e) {} }
-      if (gget('wfSessOut', 0) || /login|signin/i.test(location.pathname) || !document.querySelector('a[href*="Calendar"],#topMenu,.afTopNav,nav')) { if (gget('wfSessOut', 0)) gset('wfSessAt', now() - 13 * 60e3); /* signed out: look again in 2 min */ status('AroFlo looks signed out', true); await safeFu({ sec: 'check', key: 'af-signed-out-' + ymd(new Date()), p1: true, due: ymd(new Date()), title: 'Filer: AroFlo is signed out on your PC', desc: 'Sign back in on the filer tab. Nothing gets filed till then.' }); return; }
+      if (gget('wfSessOut', 0) || /login|signin/i.test(location.pathname) || !document.querySelector('a[href*="Calendar"],#topMenu,.afTopNav,nav')) { if (gget('wfSessOut', 0)) gset('wfSessAt', now() - 13 * 60e3); /* signed out: look again in 2 min */ status('AroFlo looks signed out', true);
+        // 19/11: the TV said "sign-in failed" with nobody home to look. Log what the page itself says (page text only, never what's typed in a box), every 10 min at most.
+        if (now() - gget('wfAfOutSaid', 0) > 10 * 60e3) { gset('wfAfOutSaid', now()); try { const said = (document.body ? document.body.innerText : '').replace(/\s+/g, ' ').trim().slice(0, 350); log('AroFlo page while signed out (' + location.pathname.slice(0, 50) + '): ' + (said || 'blank page')); } catch (e) {} } await safeFu({ sec: 'check', key: 'af-signed-out-' + ymd(new Date()), p1: true, due: ymd(new Date()), title: 'Filer: AroFlo is signed out on the ' + DEVICE, desc: 'Sign back in on the filer tab. Nothing gets filed till then.' }); return; }
       if (!(await deviceOk())) return;
       const R = await rules(); if (R.paused) { status('paused'); return; }
       if (R.dry === false && !gget('wfLiveAt', 0)) gset('wfLiveAt', now());
