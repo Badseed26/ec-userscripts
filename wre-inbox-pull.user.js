@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EC Inbox Pull
 // @namespace    ec
-// @version      1.9.1
+// @version      1.9.2
 // @description  Reads a day's Inbox and Sent Items in the shared Outlook (read only, unread emails go back to unread) and hands one compact bundle to the dashboard's inbox check. The Pull button on the dashboard starts it.
 // @match        https://outlook.cloud.microsoft/*
 // @match        https://outlook.office.com/*
@@ -30,7 +30,7 @@
   // Live updates (23/10): Tampermonkey only checks for a new version every few hours. This checks the repo's latest commit every
   // 2 min (free when nothing's changed) and keeps the newest code here, so a push runs on the next page load. If the new code needs
   // a permission this install hasn't got, or this browser won't run it, the built in copy below runs like before.
-  const __ecName = "ec-inbox-pull", __ecVer = "1.9.1", __ecHave = new Set(["// @connect 127.0.0.1", "// @connect api.github.com", "// @connect raw.githubusercontent.com", "// @grant GM.getValue", "// @grant GM_addValueChangeListener", "// @grant GM_deleteValue", "// @grant GM_getValue", "// @grant GM_listValues", "// @grant GM_openInTab", "// @grant GM_registerMenuCommand", "// @grant GM_setClipboard", "// @grant GM_setValue", "// @grant GM_xmlhttpRequest", "// @match https://*.frame.claudeusercontent.com/*", "// @match https://outlook.cloud.microsoft/*", "// @match https://outlook.office.com/*", "// @match https://outlook.office365.com/*", "// @run-at document-start"]);
+  const __ecName = "ec-inbox-pull", __ecVer = "1.9.2", __ecHave = new Set(["// @connect 127.0.0.1", "// @connect api.github.com", "// @connect raw.githubusercontent.com", "// @grant GM.getValue", "// @grant GM_addValueChangeListener", "// @grant GM_deleteValue", "// @grant GM_getValue", "// @grant GM_listValues", "// @grant GM_openInTab", "// @grant GM_registerMenuCommand", "// @grant GM_setClipboard", "// @grant GM_setValue", "// @grant GM_xmlhttpRequest", "// @match https://*.frame.claudeusercontent.com/*", "// @match https://outlook.cloud.microsoft/*", "// @match https://outlook.office.com/*", "// @match https://outlook.office365.com/*", "// @run-at document-start"]);
   const __ecInfo0 = typeof GM_info != 'undefined' ? GM_info : null;
   const __ecSay = m => { try { console.log('[live update] ' + __ecName + ': ' + m); } catch (e) {} };
   const __ecCmp = (a, b) => { const x = String(a).split('.').map(Number), y = String(b).split('.').map(Number); for (let i = 0; i < Math.max(x.length, y.length); i++) { const d = (x[i] || 0) - (y[i] || 0); if (d) return d; } return 0; };
@@ -81,7 +81,7 @@
   }
   if (window.top === window.self) { __ecCheck(); setInterval(__ecCheck, 2 * 60e3 + 5000); }
   if (__ecLive()) return;
-  // ---------- the built in copy (src/ec-inbox-pull.js at 1.9.1) ----------
+  // ---------- the built in copy (src/ec-inbox-pull.js at 1.9.2) ----------
 
 // ---------- one off (18/11/2026): moves this device's saved data over from the old names. Take this block out once every device has run it ----------
 try {
@@ -223,6 +223,12 @@ const listDay = async DAY => { const t0 = Date.now(); const want = DAY == 'today
    if (last) last.scrollIntoView({ block: 'end' });
    if (sc) sc.dispatchEvent(new WheelEvent('wheel', { deltaY: 600, bubbles: true }));
    if (await moreLoaded()) continue;
+   // what sits under the last row (a load more button or spinner?), the browser version and Outlook's list requests
+   { const x0 = getSc(); if (x0) { const kids = [...x0.querySelectorAll('*')].filter(e => e.offsetTop > (rowsNow().slice(-1)[0] || { offsetTop: 1e9 }).offsetTop && e.children.length == 0 && (e.innerText || e.getAttribute('aria-label') || '').trim()).slice(0, 4).map(e => e.tagName + ':' + (e.innerText || e.getAttribute('aria-label')).trim().slice(0, 40));
+       const btn = [...x0.querySelectorAll('button,[role=button],a')].find(b => /more|older|load|show/i.test((b.innerText || b.getAttribute('aria-label') || '')));
+       LIST_DIAG += ' | under rows: ' + (kids.join(', ') || 'nothing') + (btn ? ' | button "' + (btn.innerText || btn.getAttribute('aria-label')).trim().slice(0, 40) + '"' : ''); }
+     const cv = (navigator.userAgent.match(/Chrome\/(\d+)/) || [])[1]; const req = performance.getEntriesByType('resource').filter(r => /FindConversation|FindItem|GetConversationItems|startupdata/i.test(r.name)).slice(-4).map(r => (r.name.match(/action=(\w+)|(startupdata)/i) || [])[0] + ' ' + Math.round(r.startTime / 1000) + 's ' + (r.responseStatus || '') );
+     LIST_DIAG += ' | chrome ' + cv + ' | list requests: ' + (req.join(', ') || 'none seen'); }
    const x = getSc(); LIST_DIAG += ' || after nudge: ' + (x ? x.tagName + (x.className ? '.' + String(x.className).split(' ')[0] : '') + ' top ' + Math.round(x.scrollTop) + ' view ' + x.clientHeight + ' height ' + x.scrollHeight : 'no scroll box found') + ', rows ' + rowsNow().length + ', page ' + innerWidth + 'x' + innerHeight + ' dpr ' + devicePixelRatio;
    stop = 'end'; break; }
   await go(getSc().scrollTop + getSc().clientHeight * (newest < want ? 0.95 : 0.7)); }
