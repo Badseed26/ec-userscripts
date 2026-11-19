@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EC Inbox Pull
 // @namespace    ec
-// @version      1.9.2
+// @version      1.9.3
 // @description  Reads a day's Inbox and Sent Items in the shared Outlook (read only, unread emails go back to unread) and hands one compact bundle to the dashboard's inbox check. The Pull button on the dashboard starts it.
 // @match        https://outlook.cloud.microsoft/*
 // @match        https://outlook.office.com/*
@@ -30,7 +30,7 @@
   // Live updates (23/10): Tampermonkey only checks for a new version every few hours. This checks the repo's latest commit every
   // 2 min (free when nothing's changed) and keeps the newest code here, so a push runs on the next page load. If the new code needs
   // a permission this install hasn't got, or this browser won't run it, the built in copy below runs like before.
-  const __ecName = "ec-inbox-pull", __ecVer = "1.9.2", __ecHave = new Set(["// @connect 127.0.0.1", "// @connect api.github.com", "// @connect raw.githubusercontent.com", "// @grant GM.getValue", "// @grant GM_addValueChangeListener", "// @grant GM_deleteValue", "// @grant GM_getValue", "// @grant GM_listValues", "// @grant GM_openInTab", "// @grant GM_registerMenuCommand", "// @grant GM_setClipboard", "// @grant GM_setValue", "// @grant GM_xmlhttpRequest", "// @match https://*.frame.claudeusercontent.com/*", "// @match https://outlook.cloud.microsoft/*", "// @match https://outlook.office.com/*", "// @match https://outlook.office365.com/*", "// @run-at document-start"]);
+  const __ecName = "ec-inbox-pull", __ecVer = "1.9.3", __ecHave = new Set(["// @connect 127.0.0.1", "// @connect api.github.com", "// @connect raw.githubusercontent.com", "// @grant GM.getValue", "// @grant GM_addValueChangeListener", "// @grant GM_deleteValue", "// @grant GM_getValue", "// @grant GM_listValues", "// @grant GM_openInTab", "// @grant GM_registerMenuCommand", "// @grant GM_setClipboard", "// @grant GM_setValue", "// @grant GM_xmlhttpRequest", "// @match https://*.frame.claudeusercontent.com/*", "// @match https://outlook.cloud.microsoft/*", "// @match https://outlook.office.com/*", "// @match https://outlook.office365.com/*", "// @run-at document-start"]);
   const __ecInfo0 = typeof GM_info != 'undefined' ? GM_info : null;
   const __ecSay = m => { try { console.log('[live update] ' + __ecName + ': ' + m); } catch (e) {} };
   const __ecCmp = (a, b) => { const x = String(a).split('.').map(Number), y = String(b).split('.').map(Number); for (let i = 0; i < Math.max(x.length, y.length); i++) { const d = (x[i] || 0) - (y[i] || 0); if (d) return d; } return 0; };
@@ -81,7 +81,7 @@
   }
   if (window.top === window.self) { __ecCheck(); setInterval(__ecCheck, 2 * 60e3 + 5000); }
   if (__ecLive()) return;
-  // ---------- the built in copy (src/ec-inbox-pull.js at 1.9.2) ----------
+  // ---------- the built in copy (src/ec-inbox-pull.js at 1.9.3) ----------
 
 // ---------- one off (18/11/2026): moves this device's saved data over from the old names. Take this block out once every device has run it ----------
 try {
@@ -202,7 +202,7 @@ let DAY_ROWS = [], LATER_ROWS = [], LIST_DIAG = '';
 const WDN = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const ageOf = when => { if (/^\d{1,2}:\d{2}/.test(when)) return 0; const m = when.match(/^(Sun|Mon|Tue|Wed|Thu|Fri|Sat) \d{1,2}:\d{2}/); if (m) { const b = (new Date().getDay() - WDN.indexOf(m[1]) + 7) % 7; return b || 7; } return /\d/.test(when) ? 8 : -1; };
 // Outlook only loads more rows as you scroll. At the bottom, wait for the next lot before calling it the end (16/10: this cut Thursday off).
-const moreLoaded = async () => { const sc = getSc(); if (!sc) return false; const h0 = sc.scrollHeight, n0 = rowsNow().length; await waitFor(() => { const x = getSc(); return !!x && (x.scrollHeight > h0 + 20 || rowsNow().length > n0); }, 3500); const x = getSc(); return !!x && x.scrollHeight > h0 + 20; };
+const moreLoaded = async (ms) => { const sc = getSc(); if (!sc) return false; const h0 = sc.scrollHeight, n0 = rowsNow().length; await waitFor(() => { const x = getSc(); return !!x && (x.scrollHeight > h0 + 20 || rowsNow().length > n0); }, ms || 3500); const x = getSc(); return !!x && x.scrollHeight > h0 + 20; };
 // List the open folder for DAY ('today' or a weekday name). Skims past newer rows a full screen at a time without opening anything,
 // and stops at the first row older than the day.
 const listDay = async DAY => { const t0 = Date.now(); const want = DAY == 'today' ? 0 : ((new Date().getDay() - WDN.indexOf(DAY) + 7) % 7 || 7); const seen = new Map(); await go(0); let stop = '';
@@ -220,9 +220,13 @@ const listDay = async DAY => { const t0 = Date.now(); const want = DAY == 'today
    if (!LIST_DIAG) { const ch = []; let e = rowsNow()[0], k = 0; while (e && e !== document.documentElement && k < 14) { const cs = getComputedStyle(e); ch.push(e.tagName + '/' + cs.overflowY + '/' + e.clientHeight + '/' + e.scrollHeight); e = e.parentElement; k++; }
      const se = document.scrollingElement; LIST_DIAG = 'parents ' + (ch.join(' > ') || 'none') + ' | doc ' + (se ? se.clientHeight + '/' + se.scrollHeight : '?') + ' | rows ' + rowsNow().length; }
    const sc = getSc(), last = rowsNow().slice(-1)[0];
-   if (last) last.scrollIntoView({ block: 'end' });
-   if (sc) sc.dispatchEvent(new WheelEvent('wheel', { deltaY: 600, bubbles: true }));
-   if (await moreLoaded()) continue;
+   // the TV is slow: right to the bottom, a wheel turn, and up to 10 sec for the next lot, 3 goes
+   let more = false;
+   for (let t = 0; t < 3 && !more; t++) {
+    const y = getSc() || sc; if (last && t == 0) last.scrollIntoView({ block: 'end' });
+    if (y) { y.scrollTop = y.scrollHeight; y.dispatchEvent(new Event('scroll')); y.dispatchEvent(new WheelEvent('wheel', { deltaY: 600, bubbles: true })); }
+    more = await moreLoaded(10000); }
+   if (more) continue;
    // what sits under the last row (a load more button or spinner?), the browser version and Outlook's list requests
    { const x0 = getSc(); if (x0) { const kids = [...x0.querySelectorAll('*')].filter(e => e.offsetTop > (rowsNow().slice(-1)[0] || { offsetTop: 1e9 }).offsetTop && e.children.length == 0 && (e.innerText || e.getAttribute('aria-label') || '').trim()).slice(0, 4).map(e => e.tagName + ':' + (e.innerText || e.getAttribute('aria-label')).trim().slice(0, 40));
        const btn = [...x0.querySelectorAll('button,[role=button],a')].find(b => /more|older|load|show/i.test((b.innerText || b.getAttribute('aria-label') || '')));
