@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EC Inbox Filer
 // @namespace    ec
-// @version      0.9.88
+// @version      0.9.89
 // @description  Watches the shared Outlook for builder POs, revised POs and Energex safety advice, reads them with Claude Sonnet and files them onto the right AroFlo task. Unmatched ones, dates to book and anything odd go to follow ups. Runs only in the two filer tabs (Outlook and AroFlo opened with #ec-filer).
 // @match        https://outlook.cloud.microsoft/*
 // @match        https://outlook.office.com/*
@@ -2080,7 +2080,9 @@ if (ON_AF) {
     // pages and made junk JN 9470. A filer page load is always the filer's own (an op on the go, or go() in the last 2 min), the
     // tab being opened with #ec-filer, or an F5. Anything else and this tab stops being a filer tab.
     { const nt = ((performance.getEntriesByType && performance.getEntriesByType('navigation')[0]) || {}).type || '';
-      const ours = /#ec-filer/.test(location.hash) || !!ss('wfOp') || now() - (ss('wfGoing') || 0) < 120e3 || nt == 'reload' || /login|signin|logon/i.test(location.pathname + ' ' + document.referrer); // signing back in after a timeout counts as ours
+      // 19/11: on the TV nothing but the filer ever drives these pages, and AroFlo's session limit CONTINUE lands on the home
+      // page as a plain navigation, which made the TV's AroFlo tab stand down after every Continue. So the TV never stands down.
+      const ours = DEVICE == 'TV' || /#ec-filer/.test(location.hash) || !!ss('wfOp') || now() - (ss('wfGoing') || 0) < 120e3 || nt == 'reload' || /login|signin|logon/i.test(location.pathname + ' ' + document.referrer); // signing back in after a timeout counts as ours
       ss('wfGoing', null);
       if (!ours) { try { sessionStorage.removeItem('wfRole'); } catch (e) {} log('This tab got moved by something else (' + document.title.slice(0, 50) + '), so it stopped being a filer tab'); if (chip) chip.remove(); if (verTag) verTag.remove(); return; } }
     if (await resumeOp()) return;
