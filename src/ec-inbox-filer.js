@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EC Inbox Filer
 // @namespace    ec
-// @version      0.9.94
+// @version      0.9.95
 // @description  Watches the shared Outlook for builder POs, revised POs and Energex safety advice, reads them with Claude Sonnet and files them onto the right AroFlo task. Unmatched ones, dates to book and anything odd go to follow ups. Runs only in the two filer tabs (Outlook and AroFlo opened with #ec-filer).
 // @match        https://outlook.cloud.microsoft/*
 // @match        https://outlook.office.com/*
@@ -1101,7 +1101,12 @@ if (ON_AF) {
       if (sv.length) { const exact = sv.filter(x => /save note/i.test(lbl(x))); btn = exact.length ? exact : sv; break; } }
     const f = zone && zone.querySelector('select[name*="NoteFilter"]'), st = zone && zone.querySelector('input[name*="NoteSticky"]');
     if ((f && f.options[f.selectedIndex].text != 'Internal Only') || (st && st.checked)) { ed.setData(old); ed.resetDirty(); return opDone(op, { noteErr: 'the note isn\'t Internal Only (or it\'s sticky), nothing changed' }); }
-    if (btn.length != 1) { ed.setData(old); ed.resetDirty(); return opDone(op, { noteErr: 'found ' + btn.length + ' save buttons by that note, nothing changed. Controls near it: ' + [...new Set(seen)].slice(0, 12).join(' | ') }); }
+    if (btn.length != 1) { // 0.9.95: say how AroFlo saves an edit so the next version can do it (read only)
+      const inEd = ed.container ? [...ed.container.$.querySelectorAll('a, button')].map(lbl).filter(x => /save|update|ok|done/i.test(x)) : [];
+      const fn = Object.keys(W).filter(k => /note/i.test(k) && typeof W[k] == 'function').slice(0, 15);
+      const oc = String(a.getAttribute('onclick') || a.getAttribute('href') || '').slice(0, 120), frm = ed.element && ed.element.$.form ? (ed.element.$.form.id || ed.element.$.form.name || ed.element.$.form.getAttribute('action') || 'form') : 'no form';
+      ed.setData(old); ed.resetDirty();
+      return opDone(op, { noteErr: 'found ' + btn.length + ' save buttons by that note, nothing changed. Near it: ' + [...new Set(seen)].slice(0, 12).join(' | ') + ' || editor ' + ed.name + ', save cmd ' + !!(ed.commands && ed.commands.save) + ', toolbar: ' + inEd.join(', ') + ' || form: ' + frm + ' || edit link: ' + oc + ' || page note fns: ' + fn.join(', ') }); }
     ed.setData(op.html || ('<p>' + esc(op.text) + '</p>')); await new Promise(r => later(r, 600));
     const swapped = flat(plain(ed.getData())).includes(ends[0]);
     if (op.test) { ed.setData(old); ed.resetDirty(); return opDone(op, { test: 'Test ok: found the one note, editor opened, Internal Only, Save Note found, new text ' + (swapped ? 'went in' : 'did NOT go in') + ', save button "' + lbl(btn[0]) + '" (' + btn[0].tagName.toLowerCase() + (btn[0].id ? ' #' + btn[0].id : '') + (btn[0].className ? ' .' + String(btn[0].className).split(' ')[0] : '') + '), edit link was ' + a.tagName.toLowerCase() + ' "' + lbl(a) + '", old text put back, nothing saved' }); }
