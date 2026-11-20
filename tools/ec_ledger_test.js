@@ -67,6 +67,8 @@ const data = {
     { n: 'INV2', d: '2026-07-10', st: 'Approved', ex: 2000, inc: 2200, cl: 'Mrs Smith', jn: '9002', tn: '2 Test Rd switchboard' },
     { n: 'INV3', d: '2026-07-10', st: 'Void', ex: 500, inc: 550, cl: 'Mrs Smith', jn: '9003', tn: 'void one' },
     { n: 'INV0', d: '2026-06-24', st: 'Approved', ex: 300, inc: 330, cl: 'Mrs Smith', jn: '9000', tn: 'June job' },
+    { n: 'INVM', d: '2026-05-11', st: 'Approved', ex: 5000, inc: 5500, cl: 'Mrs Smith', jn: '8900', tn: 'May solar install' }, // before the start: read for the GST, not a solar job to chase
+    { n: 'INVJ', d: '2026-07-02', st: 'Approved', ex: 4000, inc: 4400, cl: 'Mrs Smith', jn: '8950', tn: 'solar job done in June, invoiced in July' },
     { n: 'INV4', d: '2026-07-15', st: 'IN_PROGRESS', ex: 700, inc: 770, cl: 'Mrs Smith', jn: '9004', tn: 'still being written' },
   ],
   pos: [
@@ -77,7 +79,7 @@ const data = {
     { sup: 'Tradezone', d: '2026-07-03', inc: 990 }, { sup: 'Tradezone', d: '2026-07-20', inc: 110 },
     { sup: 'CNW', d: '2026-06-15', inc: 220 }, // June order, paid end of July
   ],
-  times: [T('Alex Test', '2026-07-02', '07:00', '15:00', '9001'), T('Lee Other', '2026-07-02', '07:00', '11:00', '9001')],
+  times: [T('Alex Test', '2026-07-02', '07:00', '15:00', '9001'), T('Lee Other', '2026-07-02', '07:00', '11:00', '9001'), T('Lee Other', '2026-06-10', '07:00', '11:00', '8950')],
   stc: { '9001': { amt: -1500 } },
 };
 const set = { start: '2026-07-01', terms: 14, clientTerms: [{ match: 'big builder', days: 30 }], people: [{ name: 'Alex Test', type: 'hourly', rate: 50 }], estimates: [{ name: 'Fuel', kind: 'fuel', veh: 1, km: 500, l100: 10, price: 2, gst: true }, { name: 'Phones', kind: 'fixed', amt: 110, per: 'month', gst: true }, { name: 'Insurance', kind: 'fixed', amt: 1200, per: 'year', gst: false }, { name: 'Workers comp', kind: 'pct', pct: 2, gst: false }] };
@@ -111,13 +113,14 @@ ok('fuel amount', R.tx.filter(t => t.label == 'Fuel')[0].amt, -100);
 ok('yearly bill spread by month', R.tx.filter(t => t.label == 'Insurance')[0].amt, -100);
 ok('monthly bill on the 15th', R.tx.filter(t => t.label == 'Phones')[0].d, '2026-07-15');
 ok('workers comp is a share of the month\'s gross pay', R.tx.filter(t => t.label == 'Workers comp' && t.d == '2026-07-31')[0].amt, -E.r2(julyPays.reduce((a, x) => a + x.gross, 0) * 0.02));
-// GST for July to September, paid 28 Oct: 100 (INV1) + 200 (INV2) + 30 (INV0) in, less CNW 20, Tradezone 100, hardware 10
-ok('GST on the hard data, July to September', find('gst', t => t.tag == 'data' && t.d == '2026-10-28')[0].amt, -(330 - 20 - 100 - 10));
+// GST for July to September, paid 28 Oct: 100 (INV1) + 200 (INV2) + 30 (INV0) + 400 (INVJ) in, less CNW 20, Tradezone 100, hardware 10
+ok('GST on the hard data, July to September', find('gst', t => t.tag == 'data' && t.d == '2026-10-28')[0].amt, -(730 - 20 - 100 - 10));
 ok('GST for April to June lands Tue 28 Jul', R.tx.some(t => t.kind == 'gst' && t.d == '2026-07-28'), true);
 ok('nothing before the start date', R.tx.every(t => t.d >= '2026-07-01'), true);
 ok('nothing past 6 weeks ahead', R.tx.every(t => t.d <= '2027-01-01'), true);
 ok('lines after today are marked as projection', R.tx.filter(t => t.proj).every(t => t.d > '2026-11-20') && R.tx.some(t => t.proj), true);
-ok('other people\'s hours are listed, not paid', R.others, { 'Lee Other': 4 });
+ok('other people\'s hours are listed, not paid, from the start date', R.others, { 'Lee Other': 4 });
+ok('only solar jobs from the start date on are listed', R.solar.map(s => s.jn), ['9001']);
 ok('solar job found with its STC line', R.solar[0].how, 'line');
 ok('ATO bills after the window are added up', R.atoLater > 0, true);
 // a solar job with no STC line is flagged at 0 until a figure is typed in, then remembered
