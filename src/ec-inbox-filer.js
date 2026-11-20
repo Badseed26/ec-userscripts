@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EC Inbox Filer
 // @namespace    ec
-// @version      0.9.89
+// @version      0.9.90
 // @description  Watches the shared Outlook for builder POs, revised POs and Energex safety advice, reads them with Claude Sonnet and files them onto the right AroFlo task. Unmatched ones, dates to book and anything odd go to follow ups. Runs only in the two filer tabs (Outlook and AroFlo opened with #ec-filer).
 // @match        https://outlook.cloud.microsoft/*
 // @match        https://outlook.office.com/*
@@ -100,6 +100,14 @@ const nextWork = s => { let d = addD(s, 1); while (!working(d)) d = addD(d, 1); 
 const workDaysAhead = n => { let d = ymd(new Date()); const out = [d]; for (let i = 0; i < n; i++) { d = nextWork(d); out.push(d); } return out; };
 const esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const plain = s => String(s || '').replace(/<[^>]+>/g, ' ').replace(/&nbsp;| /g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/\s+/g, ' ').trim();
+// Multi line AroFlo note (Ethan, 20/11): "## " lines go bold, "- " or "• " lines are dot points ("  - " for one in), anything else a plain line.
+const noteHtml = s => { let h = '', lvl = 0; const close = to => { while (lvl > to) { h += '</li></ul>'; lvl--; } };
+  for (const raw of String(s || '').replace(/\r/g, '').split('\n')) { if (!raw.trim()) continue;
+    const m = raw.match(/^(\s*)[-\u2022]\s+(.*)$/);
+    if (m) { const dep = m[1].length >= 2 ? 2 : 1; if (dep > lvl) { while (lvl < dep) { h += '<ul><li>'; lvl++; } h += esc(m[2].trim()); } else { close(dep); h += '</li><li>' + esc(m[2].trim()); } continue; }
+    close(0); const hd = raw.match(/^\s*##\s+(.*)$/); h += hd ? '<p><b>' + esc(hd[1].trim()) + '</b></p>' : '<p>' + esc(raw.trim()) + '</p>'; }
+  close(0); return h; };
+const notePlain = s => String(s || '').replace(/\r/g, '').split('\n').map(l => l.replace(/^\s*(##|[-\u2022])\s+/, '').trim()).filter(Boolean).join(' ').replace(/\s+/g, ' ');
 const SHORT = { street: 'st', road: 'rd', drive: 'dr', avenue: 'ave', terrace: 'tce', court: 'ct', place: 'pl', crescent: 'cres', parade: 'pde', close: 'cl', lane: 'ln', highway: 'hwy', boulevard: 'bvd', circuit: 'cct', grove: 'gr' };
 const norm = s => String(s || '').toLowerCase().replace(/\b(street|road|drive|avenue|terrace|court|place|crescent|parade|close|lane|highway|boulevard|circuit|grove)\b/g, w => SHORT[w]).replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
 // Whole address inside a longer string: "40 Adelong Rd" is in "20253832 - 40 Adelong Road Shailer Park", "140 Adelong Rd" isn't.
@@ -1047,7 +1055,7 @@ if (ON_AF) {
     if (notesPart().includes(op.text.slice(0, 60))) return opDone(op, { note: 'already noted' });
     const b = document.getElementById('btnAddNoteHTML'); if (!b) return opDone(op, { noteErr: 'no Add Note (HTML) button' });
     jq()(b).trigger('click'); if (!(await ckReady('thisnote'))) return opDone(op, { noteErr: 'note editor didn\'t open' });
-    const ed = W.CKEDITOR.instances.thisnote; ed.setData('<p>' + esc(op.text) + '</p>');
+    const ed = W.CKEDITOR.instances.thisnote; ed.setData(op.html || ('<p>' + esc(op.text) + '</p>'));
     const f = document.querySelector('select[name=NoteFilter]'), s = document.querySelector('input[name=NoteSticky]'); const btn = document.getElementById('btnAddNote');
     if (!f || f.options[f.selectedIndex].text != 'Internal Only' || (s && s.checked) || !btn) { ed.setData(''); return opDone(op, { noteErr: 'note settings not Internal Only, nothing saved' }); }
     btn.click(); const ok = await waitFor(() => notesPart().includes(op.text.slice(0, 60)), 10000);
@@ -1917,8 +1925,9 @@ if (ON_AF) {
     return list.filter(t => t.project_id == FU && (t.labels || []).includes('filer-note') && !t.checked);
   }
   const noteParse = t => { const d = String(t.description || ''); const jn = (d.match(/\bJN\s?(\d{4,5})\b/) || d.match(/^\s*(\d{4,5})\s*\|/m) || [])[1] || '';
-    const text = ((d.match(/^NOTE: (.+)$/m) || [])[1] || '').trim(), job = ((d.match(/^job: (\S+)$/m) || [])[1] || '');
-    return { jn, text, job, err: !jn ? 'no JN on it' : !text ? 'no NOTE line' : '' }; };
+    const blk = d.replace(/\r/g, '').match(/^NOTE:[ \t]*\n([\s\S]*?)\n[ \t]*NOTE END[ \t]*$/m); // multi line block (20/11)
+    const text = blk ? blk[1].trim() : ((d.match(/^NOTE: (.+)$/m) || [])[1] || '').trim(), job = ((d.match(/^job: (\S+)$/m) || [])[1] || '');
+    return { jn, text, job, multi: !!blk, err: !jn ? 'no JN on it' : !text ? 'no NOTE line' : '' }; };
   async function noteFail(id, jn, why, say) {
     (say || log)('Error: AroFlo note ' + (jn ? 'JN ' + jn : '(no JN)') + ': ' + why);
     const cur = await td('GET', 'tasks/' + id);
@@ -1929,7 +1938,7 @@ if (ON_AF) {
     try {
       if (why) await noteFail(op.task, op.jn, why);
       else { const tail = res.note === 'already noted' ? ' (already there)' : '';
-        if (op.job) await td('POST', 'comments', { task_id: op.job, content: dmy(new Date()).slice(0, 5) + ': In AroFlo: ' + op.text });
+        if (op.job) await td('POST', 'comments', { task_id: op.job, content: dmy(new Date()).slice(0, 5) + ': In AroFlo: ' + (op.text.length > 160 ? op.text.slice(0, 157) + '...' : op.text) });
         await td('POST', 'comments', { task_id: op.task, content: 'Filer put this on JN ' + op.jn + ' as a note' + tail }); await closeFu(op.task);
         log('Done: note on JN ' + op.jn + ': ' + op.text.slice(0, 60) + tail); }
     } catch (e) { log('Error: AroFlo note JN ' + op.jn + ': Todoist side failed, ' + e.message); }
@@ -1949,7 +1958,8 @@ if (ON_AF) {
       const r = await findJn(p.jn);
       if (!r || !r.href) { await noteFail(t.id, p.jn, 'JN ' + p.jn + ' isn\'t in AroFlo', say); return 'failed'; }
       if (/Archived/i.test(r.status || '')) { await noteFail(t.id, p.jn, 'JN ' + p.jn + ' is archived, AroFlo won\'t take notes on it', say); return 'failed'; }
-      const op = { op: 'anote', jobId: 'anote-' + t.id, task: t.id, jn: p.jn, text: p.text, job: p.job };
+      const op = p.multi ? { op: 'anote', jobId: 'anote-' + t.id, task: t.id, jn: p.jn, text: notePlain(p.text), html: noteHtml(p.text), job: p.job }
+        : { op: 'anote', jobId: 'anote-' + t.id, task: t.id, jn: p.jn, text: p.text, job: p.job };
       if (o.test) return { op };
       status('note: JN ' + p.jn); startOp(op, r.href); return 'op';
     } catch (e) { say('Error: AroFlo note JN ' + (p.jn || '?') + ': ' + e.message); return 'failed'; }
