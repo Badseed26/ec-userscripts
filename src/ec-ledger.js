@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EC Ledger
 // @namespace    ec
-// @version      0.7
+// @version      0.8
 // @description  A pretend bank account on the AroFlo home page: invoices in, supplier accounts, pays, tax and estimated running costs out, replayed from the start date every run. Read only on AroFlo, Tradezone and CNW. Names and pay figures stay on this device.
 // @match        https://office.aroflo.com/ims/Site/Home/*
 // @grant        GM_xmlhttpRequest
@@ -409,6 +409,13 @@
   const VER = (() => { try { return GM_info.script.version || ''; } catch (e) { return ''; } })(); // shown in the title, so it's clear which copy is installed
   const saveSet = () => { try { GM_setValue(SETKEY, set); } catch (e) {} };
   const calc = () => { res = data ? E.run(data, set, todayIso()) : null; };
+  // Copy without waiting forever on it: the browser's own copy can hang or be refused, and Tampermonkey's can say it worked
+  // when it didn't (iPhone). true = copied, 'maybe' = Tampermonkey's go, false = no luck.
+  async function copyText(text) {
+    try { if (await Promise.race([navigator.clipboard.writeText(text).then(() => true, () => false), new Promise(r => setTimeout(() => r(false), 1500))])) return true; } catch (e) {}
+    try { GM_setClipboard(text, 'text'); return 'maybe'; } catch (e) {}
+    return false;
+  }
   const encode = o => btoa(unescape(encodeURIComponent(JSON.stringify(o))));
   const decode = s => JSON.parse(decodeURIComponent(escape(atob(String(s).replace(/\s+/g, '')))));
 
@@ -639,18 +646,18 @@ ${res ? `<div class="card"><h4>Solar jobs</h4><p class="hint">Only jobs with no 
       if (a == 'more') { more += 300; draw(); }
       if (a == 'sorted') { sorted = !sorted; draw(); }
       if (a == 'log') {
-        // the browser's own copy first, and the text in a box either way: on the iPhone a copy can say it worked when it didn't
-        const text = issuesLog(), ta = box.querySelector('.logbox'); let ok = false;
-        try { await navigator.clipboard.writeText(text); ok = true; } catch (er) { try { GM_setClipboard(text, 'text'); } catch (e2) {} }
-        ta.style.display = 'block'; ta.value = text; if (!ok) { ta.focus(); ta.select(); }
-        say(ok ? 'Issues log copied (' + text.split('\n').length + ' lines). Paste it to Claude.' : 'Copy might not have worked here. Select all in the box and copy it.');
+        // the text goes in a box first, so it's there to copy by hand whatever the clipboard does
+        const text = issuesLog(), ta = box.querySelector('.logbox');
+        ta.style.display = 'block'; ta.value = text;
+        const ok = await copyText(text); if (ok !== true) { ta.focus(); ta.select(); }
+        say(ok === true ? 'Issues log copied (' + text.split('\n').length + ' lines). Paste it to Claude.' : ok ? 'Should be copied. If it won\'t paste, select all in the box and copy it.' : 'Select all in the box and copy it.');
       }
       if (a == 'add') { (set[t.dataset.list] = set[t.dataset.list] || []).push(NEW[t.dataset.list]()); saveSet(); calc(); draw(); }
       if (a == 'rm') { set[t.dataset.list].splice(+t.dataset.i, 1); saveSet(); calc(); draw(); }
       if (a == 'export') {
         const code = encode(set), ta = box.querySelector('.code'); ta.value = code;
-        let ok = false; try { await navigator.clipboard.writeText(code); ok = true; } catch (er) { try { GM_setClipboard(code, 'text'); ok = true; } catch (e2) {} }
-        ta.focus(); ta.select(); say(ok ? 'Settings code copied. Paste it into the Ledger on your other device.' : 'Select all in the box and copy it.');
+        const ok = await copyText(code); ta.focus(); ta.select();
+        say(ok === true ? 'Settings code copied. Paste it into the Ledger on your other device.' : ok ? 'Should be copied. If it won\'t paste, select all in the box and copy it.' : 'Select all in the box and copy it.');
       }
       if (a == 'import') {
         try {
