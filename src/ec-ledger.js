@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EC Ledger
 // @namespace    ec
-// @version      0.10
+// @version      0.11
 // @description  A pretend bank account on the AroFlo home page: invoices in, supplier accounts, pays, tax and estimated running costs out, replayed from the start date every run. Read only on AroFlo, Tradezone and CNW. Names and pay figures stay on this device.
 // @match        https://office.aroflo.com/ims/Site/Home/*
 // @grant        GM_xmlhttpRequest
@@ -408,6 +408,10 @@
   let tab = 'over', hard = false, ahead = false, more = 150, busy = false, box, note = '', loaded = '', sorted = false;
   const VER = (() => { try { return GM_info.script.version || ''; } catch (e) { return ''; } })(); // shown in the title, so it's clear which copy is installed
   const saveSet = () => { try { GM_setValue(SETKEY, set); } catch (e) {} };
+  // Another AroFlo tab (or an older copy still open in one) can have saved since this page loaded. The whole lot is saved in one
+  // go, so before anything is changed here the latest saved settings are picked up first. Otherwise this tab would write its
+  // older copy over the top and wipe what the other one saved (20/11: a batch of STC figures went that way).
+  const sync = () => { try { const s = GM_getValue(SETKEY, null); if (s && typeof s == 'object') set = Object.assign(E.DEFAULTS(todayIso()), s); } catch (e) {} };
   const calc = () => { res = data ? E.run(data, set, todayIso()) : null; };
   // Copy without waiting forever on it: the browser's own copy can hang or be refused, and Tampermonkey's can say it worked
   // when it didn't (iPhone). true = copied, 'maybe' = Tampermonkey's go, false = no luck.
@@ -636,13 +640,14 @@ ${res ? `<div class="card"><h4>Solar jobs</h4><p class="hint">Only jobs with no 
 <div class="tabs"><button data-tab="over">Overview</button><button data-tab="st">Statement</button><button data-tab="pay">Pays</button><button data-tab="set">Settings</button></div>
 <div class="msg"></div><div class="bd"></div>`;
     document.body.appendChild(box);
-    b.onclick = () => { const open = box.style.display != 'flex'; box.style.display = open ? 'flex' : 'none'; if (open) { calc(); draw(); } };
+    b.onclick = () => { const open = box.style.display != 'flex'; box.style.display = open ? 'flex' : 'none'; if (open) { sync(); calc(); draw(); } };
     box.querySelector('.x').onclick = () => { box.style.display = 'none'; };
     box.querySelector('.go').onclick = refresh;
-    box.querySelector('.tabs').onclick = e => { const t = e.target.closest('button'); if (t) { tab = t.dataset.tab; more = 150; loaded = ''; draw(); } };
+    box.querySelector('.tabs').onclick = e => { const t = e.target.closest('button'); if (t) { tab = t.dataset.tab; more = 150; loaded = ''; sync(); calc(); draw(); } };
     box.querySelector('.bd').addEventListener('click', async e => {
       const t = e.target.closest('[data-act]'); if (!t || t.tagName == 'INPUT') return;
       const a = t.dataset.act;
+      if (a == 'add' || a == 'rm' || a == 'import' || a == 'export') sync();
       if (a == 'more') { more += 300; draw(); }
       if (a == 'sorted') { sorted = !sorted; draw(); }
       if (a == 'log') {
@@ -653,7 +658,7 @@ ${res ? `<div class="card"><h4>Solar jobs</h4><p class="hint">Only jobs with no 
         say(ok === true ? 'Issues log copied (' + text.split('\n').length + ' lines). Paste it to Claude.' : ok ? 'Should be copied. If it won\'t paste, select all in the box and copy it.' : 'Select all in the box and copy it.');
       }
       if (a == 'add') { (set[t.dataset.list] = set[t.dataset.list] || []).push(NEW[t.dataset.list]()); saveSet(); calc(); draw(); }
-      if (a == 'rm') { set[t.dataset.list].splice(+t.dataset.i, 1); saveSet(); calc(); draw(); }
+      if (a == 'rm') { (set[t.dataset.list] || []).splice(+t.dataset.i, 1); saveSet(); calc(); draw(); }
       if (a == 'export') {
         const code = encode(set), ta = box.querySelector('.code'); ta.value = code;
         const ok = await copyText(code); ta.focus(); ta.select();
@@ -697,7 +702,8 @@ ${res ? `<div class="card"><h4>Solar jobs</h4><p class="hint">Only jobs with no 
       const el = e.target;
       if (el.dataset.act == 'hard') { hard = el.checked; return draw(); }
       if (el.dataset.act == 'ahead') { ahead = el.checked; return draw(); }
-      if (el.dataset.k) put(el.dataset.k, el);
+      sync();
+      if (el.dataset.k) { try { put(el.dataset.k, el); } catch (er) { say('That row has changed in another tab. Have another go.'); return draw(); } }
       else if (el.dataset.hols) set.extraHols = el.value.split(/[,\s]+/).filter(x => /^\d{4}-\d{2}-\d{2}$/.test(x));
       else if (el.dataset.stc) { set.stc = set.stc || {}; if (el.value === '') delete set.stc[el.dataset.stc]; else set.stc[el.dataset.stc] = { amt: +el.value }; }
       else if (el.dataset.stcnone) { set.stc = set.stc || {}; if (el.checked) set.stc[el.dataset.stcnone] = { none: true }; else delete set.stc[el.dataset.stcnone]; }
