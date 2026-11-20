@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EC Inbox Filer
 // @namespace    ec
-// @version      0.9.95
+// @version      0.9.96
 // @description  Watches the shared Outlook for builder POs, revised POs and Energex safety advice, reads them with Claude Sonnet and files them onto the right AroFlo task. Unmatched ones, dates to book and anything odd go to follow ups. Runs only in the two filer tabs (Outlook and AroFlo opened with #ec-filer).
 // @match        https://outlook.cloud.microsoft/*
 // @match        https://outlook.office.com/*
@@ -1070,6 +1070,12 @@ if (ON_AF) {
     const opDone = endOp; const flat = x => String(x || '').replace(/\s+/g, ' ').trim(); const want = flat(op.edit).toLowerCase();
     const ends = [flat(op.text).slice(0, 80), flat(op.text).slice(-80)];
     const isNew = () => { const n = notesPart(); return ends.every(e => n.includes(e)); };
+    const linkSel = 'a.editNote, .editNote a, a[class*="editNote"]';
+    if (op.fired) { // back after the save reloaded the page (0.9.96)
+      await waitFor(isNew, 12000); const n = new Set([...document.querySelectorAll(linkSel)]).size;
+      if (!isNew()) return opDone(op, { noteErr: 'pressed Save Note but the new text didn\'t show, check the note by hand' });
+      if (op.editCount && n != op.editCount) return opDone(op, { noteErr: 'edit went in but the note count went from ' + op.editCount + ' to ' + n + ', check JN ' + op.jn + ' for a stray note' });
+      return opDone(op, { note: op.text, edited: true }); }
     if (!op.test && isNew()) return opDone(op, { note: 'already noted' });
     // each note's own block: go up from its edit link till the next step up would take in another note's edit link
     const links = [...document.querySelectorAll('a.editNote, .editNote a, a[class*="editNote"]')].filter((a, i, all) => all.indexOf(a) == i);
@@ -1101,17 +1107,24 @@ if (ON_AF) {
       if (sv.length) { const exact = sv.filter(x => /save note/i.test(lbl(x))); btn = exact.length ? exact : sv; break; } }
     const f = zone && zone.querySelector('select[name*="NoteFilter"]'), st = zone && zone.querySelector('input[name*="NoteSticky"]');
     if ((f && f.options[f.selectedIndex].text != 'Internal Only') || (st && st.checked)) { ed.setData(old); ed.resetDirty(); return opDone(op, { noteErr: 'the note isn\'t Internal Only (or it\'s sticky), nothing changed' }); }
+    // 0.9.96: AroFlo's note editors all sit in the task's editwr form, and an edit saves with the notes area's own Save Note
+    // (#btnAddNote), same as October's hand edit. Only when the add note box is empty, so it can't save a stray new note.
+    const sn = document.getElementById('btnAddNote'), tn = W.CKEDITOR.instances.thisnote;
+    const useSn = !btn.length && sn && ed.element && ed.element.$.form && sn.form ? ed.element.$.form === sn.form : !btn.length && !!sn;
+    if (useSn) { if (tn && plain(tn.getData())) { ed.setData(old); ed.resetDirty(); return opDone(op, { noteErr: 'the add note box has text in it, not saving over it, nothing changed' }); } btn = [sn]; }
     if (btn.length != 1) { // 0.9.95: say how AroFlo saves an edit so the next version can do it (read only)
       const inEd = ed.container ? [...ed.container.$.querySelectorAll('a, button')].map(lbl).filter(x => /save|update|ok|done/i.test(x)) : [];
       const fn = Object.keys(W).filter(k => /note/i.test(k) && typeof W[k] == 'function').slice(0, 15);
       const oc = String(a.getAttribute('onclick') || a.getAttribute('href') || '').slice(0, 120), frm = ed.element && ed.element.$.form ? (ed.element.$.form.id || ed.element.$.form.name || ed.element.$.form.getAttribute('action') || 'form') : 'no form';
       ed.setData(old); ed.resetDirty();
-      return opDone(op, { noteErr: 'found ' + btn.length + ' save buttons by that note, nothing changed. Near it: ' + [...new Set(seen)].slice(0, 12).join(' | ') + ' || editor ' + ed.name + ', save cmd ' + !!(ed.commands && ed.commands.save) + ', toolbar: ' + inEd.join(', ') + ' || form: ' + frm + ' || edit link: ' + oc + ' || page note fns: ' + fn.join(', ') }); }
+      return opDone(op, { noteErr: 'found ' + btn.length + ' save buttons by that note (Save Note ' + (sn ? (sn.offsetParent ? 'showing' : 'hidden') : 'not on the page') + '), nothing changed. Near it: ' + [...new Set(seen)].slice(0, 12).join(' | ') + ' || editor ' + ed.name + ', save cmd ' + !!(ed.commands && ed.commands.save) + ', toolbar: ' + inEd.join(', ') + ' || form: ' + frm + ' || edit link: ' + oc + ' || page note fns: ' + fn.join(', ') }); }
     ed.setData(op.html || ('<p>' + esc(op.text) + '</p>')); await new Promise(r => later(r, 600));
     const swapped = flat(plain(ed.getData())).includes(ends[0]);
-    if (op.test) { ed.setData(old); ed.resetDirty(); return opDone(op, { test: 'Test ok: found the one note, editor opened, Internal Only, Save Note found, new text ' + (swapped ? 'went in' : 'did NOT go in') + ', save button "' + lbl(btn[0]) + '" (' + btn[0].tagName.toLowerCase() + (btn[0].id ? ' #' + btn[0].id : '') + (btn[0].className ? ' .' + String(btn[0].className).split(' ')[0] : '') + '), edit link was ' + a.tagName.toLowerCase() + ' "' + lbl(a) + '", old text put back, nothing saved' }); }
+    if (op.test) { ed.setData(old); ed.resetDirty(); return opDone(op, { test: 'Test ok: found the one note, editor opened, Internal Only, Save Note found, new text ' + (swapped ? 'went in' : 'did NOT go in') + ', save button "' + lbl(btn[0]) + '" (' + btn[0].tagName.toLowerCase() + (btn[0].id ? ' #' + btn[0].id : '') + (btn[0].className ? ' .' + String(btn[0].className).split(' ')[0] : '') + '), edit link was ' + a.tagName.toLowerCase() + ' "' + lbl(a) + '", old text put back, nothing saved' + (btn[0] === sn ? '. Save Note is ' + (sn.offsetParent ? 'showing' : 'hidden') + ', add note box ' + (tn ? 'open' : 'closed') : '') }); }
     if (!swapped) { ed.setData(old); ed.resetDirty(); return opDone(op, { noteErr: 'the new text didn\'t take in the editor, nothing changed' }); }
+    op.fired = true; op.editCount = links.length; ss('wfOp', op); // a page reload comes back through resumeOp to the check above
     btn[0].click(); const ok = await waitFor(isNew, 12000);
+    if (ok && new Set([...document.querySelectorAll(linkSel)]).size != op.editCount) return opDone(op, { noteErr: 'edit went in but the note count changed, check JN ' + op.jn + ' for a stray note' });
     return opDone(op, ok ? { note: op.text, edited: true } : { noteErr: 'saved but the new text didn\'t show, check the note by hand' });
   }
 
