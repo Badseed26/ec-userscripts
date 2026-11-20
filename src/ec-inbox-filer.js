@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EC Inbox Filer
 // @namespace    ec
-// @version      0.9.90
+// @version      0.9.91
 // @description  Watches the shared Outlook for builder POs, revised POs and Energex safety advice, reads them with Claude Sonnet and files them onto the right AroFlo task. Unmatched ones, dates to book and anything odd go to follow ups. Runs only in the two filer tabs (Outlook and AroFlo opened with #ec-filer).
 // @match        https://outlook.cloud.microsoft/*
 // @match        https://outlook.office.com/*
@@ -1052,6 +1052,7 @@ if (ON_AF) {
     const opDone = endOp; // 26/10: also runs the dashboard's Note to AroFlo (op anote), which ends in Todoist, not the job queue
     if (op.op == 'anote' && !(await waitFor(() => new RegExp('\\bJN ' + op.jn + '\\b').test(document.title) && !!document.getElementById('btnAddNoteHTML'), 20000))) return opDone(op, { noteErr: 'landed on "' + document.title.slice(0, 40) + '", not JN ' + op.jn + ', nothing saved' });
     const notesPart = () => { const t = document.body.innerText.replace(/\s+/g, ' '); const i = t.indexOf('Task Notes'), j = t.indexOf('Add Note (Text)'); return i < 0 ? '' : t.slice(i, j > i ? j : i + 400); };
+    if (op.edit) return opEdit(op, notesPart);
     if (notesPart().includes(op.text.slice(0, 60))) return opDone(op, { note: 'already noted' });
     const b = document.getElementById('btnAddNoteHTML'); if (!b) return opDone(op, { noteErr: 'no Add Note (HTML) button' });
     jq()(b).trigger('click'); if (!(await ckReady('thisnote'))) return opDone(op, { noteErr: 'note editor didn\'t open' });
@@ -1060,6 +1061,44 @@ if (ON_AF) {
     if (!f || f.options[f.selectedIndex].text != 'Internal Only' || (s && s.checked) || !btn) { ed.setData(''); return opDone(op, { noteErr: 'note settings not Internal Only, nothing saved' }); }
     btn.click(); const ok = await waitFor(() => notesPart().includes(op.text.slice(0, 60)), 10000);
     return opDone(op, ok ? { note: op.text } : { noteErr: 'note didn\'t show after saving' });
+  }
+
+  // Op: edit one of Ethan's existing notes (Ethan, 20/11). The item's MATCH: line has to pick out exactly one note, written by
+  // Ethan. Opens that note's own edit link, swaps the text, keeps Internal Only, saves and checks the new text shows.
+  // TEST: yes on the item does it all on the real page but puts the old text back and never saves. Never deletes a note.
+  async function opEdit(op, notesPart) {
+    const opDone = endOp; const flat = x => String(x || '').replace(/\s+/g, ' ').trim(); const want = flat(op.edit).toLowerCase();
+    const ends = [flat(op.text).slice(0, 80), flat(op.text).slice(-80)];
+    const isNew = () => { const n = notesPart(); return ends.every(e => n.includes(e)); };
+    if (!op.test && isNew()) return opDone(op, { note: 'already noted' });
+    // each note's own block: go up from its edit link till the next step up would take in another note's edit link
+    const links = [...document.querySelectorAll('a.editNote, .editNote a, a[class*="editNote"]')].filter((a, i, all) => all.indexOf(a) == i);
+    if (!links.length) return opDone(op, { noteErr: 'no edit links on the notes, nothing changed' });
+    const blockOf = a => { let b = a, k = 0; while (k++ < 8 && b.parentElement && b.parentElement != document.body && b.parentElement.querySelectorAll('a.editNote, .editNote a, a[class*="editNote"]').length <= 1) b = b.parentElement; return b; };
+    const hits = links.map(a => ({ a, b: blockOf(a) })).filter(x => flat(x.b.innerText).toLowerCase().includes(want));
+    if (hits.length != 1) return opDone(op, { noteErr: (hits.length ? hits.length + ' notes' : 'no note') + ' matched "' + op.edit.slice(0, 40) + '", nothing changed' });
+    const { a, b } = hits[0];
+    if (!b.innerText.includes(STAFF.Ethan.full)) return opDone(op, { noteErr: 'that note isn\'t one of Ethan\'s (or the page doesn\'t show who wrote it), nothing changed' });
+    const before = new Set(W.CKEDITOR ? Object.keys(W.CKEDITOR.instances) : []);
+    jq()(a).trigger('click');
+    let ed = null;
+    await waitFor(() => { const all = W.CKEDITOR ? Object.values(W.CKEDITOR.instances).filter(i => i.name != 'thisnote' && i.status == 'ready') : [];
+      const inB = all.filter(i => i.element && b.contains(i.element.$)), fresh = all.filter(i => !before.has(i.name) || /^myeditorNotes/.test(i.name));
+      ed = inB.length == 1 ? inB[0] : fresh.length == 1 ? fresh[0] : null; return !!ed; }, 10000);
+    if (!ed) return opDone(op, { noteErr: 'the note\'s editor didn\'t open (or more than one did), nothing changed' });
+    const old = ed.getData();
+    if (!flat(plain(old)).toLowerCase().includes(want)) { ed.setData(old); ed.resetDirty(); return opDone(op, { noteErr: 'the editor that opened isn\'t that note, nothing changed' }); }
+    const box = ed.container ? ed.container.$ : b; let zone = box; for (let i = 0; i < 6 && zone.parentElement && !/save note/i.test(zone.innerText || '') && ![...zone.querySelectorAll('input')].some(x => /save note/i.test(x.value || '')); i++) zone = zone.parentElement;
+    const f = zone.querySelector('select[name*="NoteFilter"]'), st = zone.querySelector('input[name*="NoteSticky"]');
+    if ((f && f.options[f.selectedIndex].text != 'Internal Only') || (st && st.checked)) { ed.setData(old); ed.resetDirty(); return opDone(op, { noteErr: 'the note isn\'t Internal Only (or it\'s sticky), nothing changed' }); }
+    const btn = [...zone.querySelectorAll('button, input[type=button], input[type=submit], a')].filter(x => x.id != 'btnAddNote' && /^\s*save note\s*$/i.test(x.innerText || x.value || ''));
+    if (btn.length != 1) { ed.setData(old); ed.resetDirty(); return opDone(op, { noteErr: 'found ' + btn.length + ' Save Note buttons by that note, nothing changed' }); }
+    ed.setData(op.html || ('<p>' + esc(op.text) + '</p>')); await new Promise(r => later(r, 600));
+    const swapped = flat(plain(ed.getData())).includes(ends[0]);
+    if (op.test) { ed.setData(old); ed.resetDirty(); return opDone(op, { test: 'Test ok: found the one note, editor opened, Internal Only, Save Note found, new text ' + (swapped ? 'went in' : 'did NOT go in') + ', old text put back, nothing saved' }); }
+    if (!swapped) { ed.setData(old); ed.resetDirty(); return opDone(op, { noteErr: 'the new text didn\'t take in the editor, nothing changed' }); }
+    btn[0].click(); const ok = await waitFor(isNew, 12000);
+    return opDone(op, ok ? { note: op.text, edited: true } : { noteErr: 'saved but the new text didn\'t show, check the note by hand' });
   }
 
   // Op: create a new task from the PO. Location picked off the client autocomplete; a new one made through the + box if there isn't one.
@@ -1927,7 +1966,8 @@ if (ON_AF) {
   const noteParse = t => { const d = String(t.description || ''); const jn = (d.match(/\bJN\s?(\d{4,5})\b/) || d.match(/^\s*(\d{4,5})\s*\|/m) || [])[1] || '';
     const blk = d.replace(/\r/g, '').match(/^NOTE:[ \t]*\n([\s\S]*?)\n[ \t]*NOTE END[ \t]*$/m); // multi line block (20/11)
     const text = blk ? blk[1].trim() : ((d.match(/^NOTE: (.+)$/m) || [])[1] || '').trim(), job = ((d.match(/^job: (\S+)$/m) || [])[1] || '');
-    return { jn, text, job, multi: !!blk, err: !jn ? 'no JN on it' : !text ? 'no NOTE line' : '' }; };
+    const match = ((d.match(/^MATCH: (.+)$/m) || [])[1] || '').trim(), test = /^TEST: yes\s*$/mi.test(d); // edit an existing note (20/11)
+    return { jn, text, job, multi: !!blk, match, test, err: !jn ? 'no JN on it' : !text ? 'no NOTE line' : match && match.length < 15 ? 'MATCH line too short to be sure, use 15 or more characters' : '' }; };
   async function noteFail(id, jn, why, say) {
     (say || log)('Error: AroFlo note ' + (jn ? 'JN ' + jn : '(no JN)') + ': ' + why);
     const cur = await td('GET', 'tasks/' + id);
@@ -1936,10 +1976,11 @@ if (ON_AF) {
   async function noteEnd(op, res) {
     ss('wfOp', null); const why = res.noteErr;
     try {
-      if (why) await noteFail(op.task, op.jn, why);
+      if (res.test) { const cur = await td('GET', 'tasks/' + op.task); await td('POST', 'comments', { task_id: op.task, content: res.test }); await td('POST', 'tasks/' + op.task, { labels: ((cur && cur.labels) || []).filter(l => l != 'filer-note') }); log('Edit test JN ' + op.jn + ': ' + res.test); }
+      else if (why) await noteFail(op.task, op.jn, why);
       else { const tail = res.note === 'already noted' ? ' (already there)' : '';
-        if (op.job) await td('POST', 'comments', { task_id: op.job, content: dmy(new Date()).slice(0, 5) + ': In AroFlo: ' + (op.text.length > 160 ? op.text.slice(0, 157) + '...' : op.text) });
-        await td('POST', 'comments', { task_id: op.task, content: 'Filer put this on JN ' + op.jn + ' as a note' + tail }); await closeFu(op.task);
+        if (op.job) await td('POST', 'comments', { task_id: op.job, content: dmy(new Date()).slice(0, 5) + ': In AroFlo' + (res.edited ? ' (note edited)' : '') + ': ' + (op.text.length > 160 ? op.text.slice(0, 157) + '...' : op.text) });
+        await td('POST', 'comments', { task_id: op.task, content: (res.edited ? 'Filer edited the note on JN ' + op.jn : 'Filer put this on JN ' + op.jn + ' as a note') + tail }); await closeFu(op.task);
         log('Done: note on JN ' + op.jn + ': ' + op.text.slice(0, 60) + tail); }
     } catch (e) { log('Error: AroFlo note JN ' + op.jn + ': Todoist side failed, ' + e.message); }
     go(HOME);
@@ -1954,12 +1995,13 @@ if (ON_AF) {
     try {
       if (p.err) { await noteFail(t.id, p.jn, p.err, say); return 'failed'; }
       const dry = o.test ? !!o.dry : (await rules()).dry;
-      if (dry) { await td('POST', 'comments', { task_id: t.id, content: 'Dry run: would note on JN ' + p.jn + ': ' + p.text }); await td('POST', 'tasks/' + t.id, { labels: (t.labels || []).filter(l => l != 'filer-note') }); say('DRY RUN note JN ' + p.jn + ': ' + p.text); return 'dry'; }
+      if (dry) { await td('POST', 'comments', { task_id: t.id, content: 'Dry run: would ' + (p.match ? 'edit the note starting "' + p.match + '" on' : 'note on') + ' JN ' + p.jn + ': ' + p.text }); await td('POST', 'tasks/' + t.id, { labels: (t.labels || []).filter(l => l != 'filer-note') }); say('DRY RUN note JN ' + p.jn + ': ' + p.text); return 'dry'; }
       const r = await findJn(p.jn);
       if (!r || !r.href) { await noteFail(t.id, p.jn, 'JN ' + p.jn + ' isn\'t in AroFlo', say); return 'failed'; }
       if (/Archived/i.test(r.status || '')) { await noteFail(t.id, p.jn, 'JN ' + p.jn + ' is archived, AroFlo won\'t take notes on it', say); return 'failed'; }
       const op = p.multi ? { op: 'anote', jobId: 'anote-' + t.id, task: t.id, jn: p.jn, text: notePlain(p.text), html: noteHtml(p.text), job: p.job }
         : { op: 'anote', jobId: 'anote-' + t.id, task: t.id, jn: p.jn, text: p.text, job: p.job };
+      if (p.match) { op.edit = p.match; op.test = p.test; }
       if (o.test) return { op };
       status('note: JN ' + p.jn); startOp(op, r.href); return 'op';
     } catch (e) { say('Error: AroFlo note JN ' + (p.jn || '?') + ': ' + e.message); return 'failed'; }
