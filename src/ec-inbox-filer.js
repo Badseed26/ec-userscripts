@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EC Inbox Filer
 // @namespace    ec
-// @version      0.9.96
+// @version      0.9.97
 // @description  Watches the shared Outlook for builder POs, revised POs and Energex safety advice, reads them with Claude Sonnet and files them onto the right AroFlo task. Unmatched ones, dates to book and anything odd go to follow ups. Runs only in the two filer tabs (Outlook and AroFlo opened with #ec-filer).
 // @match        https://outlook.cloud.microsoft/*
 // @match        https://outlook.office.com/*
@@ -1068,8 +1068,10 @@ if (ON_AF) {
   // TEST: yes on the item does it all on the real page but puts the old text back and never saves. Never deletes a note.
   async function opEdit(op, notesPart) {
     const opDone = endOp; const flat = x => String(x || '').replace(/\s+/g, ' ').trim(); const want = flat(op.edit).toLowerCase();
-    const ends = [flat(op.text).slice(0, 80), flat(op.text).slice(-80)];
-    const isNew = () => { const n = notesPart(); return ends.every(e => n.includes(e)); };
+    // 0.9.97: the whole new text has to be there. Checking just the start and end said "already there" on a real edit,
+    // since an edit usually keeps both.
+    const ends = [flat(op.text).slice(0, 80)];
+    const isNew = () => notesPart().includes(flat(op.text));
     const linkSel = 'a.editNote, .editNote a, a[class*="editNote"]';
     if (op.fired) { // back after the save reloaded the page (0.9.96)
       await waitFor(isNew, 12000); const n = new Set([...document.querySelectorAll(linkSel)]).size;

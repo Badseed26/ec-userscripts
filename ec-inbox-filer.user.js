@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EC Inbox Filer
 // @namespace    ec
-// @version      0.9.96
+// @version      0.9.97
 // @description  Watches the shared Outlook for builder POs, revised POs and Energex safety advice, reads them with Claude Sonnet and files them onto the right AroFlo task. Unmatched ones, dates to book and anything odd go to follow ups. Runs only in the two filer tabs (Outlook and AroFlo opened with #ec-filer).
 // @match        https://outlook.cloud.microsoft/*
 // @match        https://outlook.office.com/*
@@ -31,7 +31,7 @@
   // Live updates (23/10): Tampermonkey only checks for a new version every few hours. This checks the repo's latest commit every
   // 2 min (free when nothing's changed) and keeps the newest code here, so a push runs on the next page load. If the new code needs
   // a permission this install hasn't got, or this browser won't run it, the built in copy below runs like before.
-  const __ecName = "ec-inbox-filer", __ecVer = "0.9.96", __ecHave = new Set(["// @connect api.anthropic.com", "// @connect api.github.com", "// @connect api.todoist.com", "// @connect files.todoist.com", "// @connect production-reportapi.ambrosebuilding.com.au", "// @connect raw.githubusercontent.com", "// @grant GM_deleteValue", "// @grant GM_getValue", "// @grant GM_listValues", "// @grant GM_openInTab", "// @grant GM_registerMenuCommand", "// @grant GM_setValue", "// @grant GM_xmlhttpRequest", "// @grant unsafeWindow", "// @match https://office.aroflo.com/*", "// @match https://outlook.cloud.microsoft/*", "// @match https://outlook.office.com/*", "// @match https://outlook.office365.com/*", "// @run-at document-start"]);
+  const __ecName = "ec-inbox-filer", __ecVer = "0.9.97", __ecHave = new Set(["// @connect api.anthropic.com", "// @connect api.github.com", "// @connect api.todoist.com", "// @connect files.todoist.com", "// @connect production-reportapi.ambrosebuilding.com.au", "// @connect raw.githubusercontent.com", "// @grant GM_deleteValue", "// @grant GM_getValue", "// @grant GM_listValues", "// @grant GM_openInTab", "// @grant GM_registerMenuCommand", "// @grant GM_setValue", "// @grant GM_xmlhttpRequest", "// @grant unsafeWindow", "// @match https://office.aroflo.com/*", "// @match https://outlook.cloud.microsoft/*", "// @match https://outlook.office.com/*", "// @match https://outlook.office365.com/*", "// @run-at document-start"]);
   const __ecInfo0 = typeof GM_info != 'undefined' ? GM_info : null;
   const __ecSay = m => { try { console.log('[live update] ' + __ecName + ': ' + m); } catch (e) {} };
   const __ecCmp = (a, b) => { const x = String(a).split('.').map(Number), y = String(b).split('.').map(Number); for (let i = 0; i < Math.max(x.length, y.length); i++) { const d = (x[i] || 0) - (y[i] || 0); if (d) return d; } return 0; };
@@ -82,7 +82,7 @@
   }
   if (window.top === window.self) { __ecCheck(); setInterval(__ecCheck, 2 * 60e3 + 5000); }
   if (__ecLive()) return;
-  // ---------- the built in copy (src/ec-inbox-filer.js at 0.9.96) ----------
+  // ---------- the built in copy (src/ec-inbox-filer.js at 0.9.97) ----------
 
 // ---------- one off (18/11/2026): moves this device's saved data over from the old names. Take this block out once every device has run it ----------
 try {
@@ -1128,8 +1128,10 @@ if (ON_AF) {
   // TEST: yes on the item does it all on the real page but puts the old text back and never saves. Never deletes a note.
   async function opEdit(op, notesPart) {
     const opDone = endOp; const flat = x => String(x || '').replace(/\s+/g, ' ').trim(); const want = flat(op.edit).toLowerCase();
-    const ends = [flat(op.text).slice(0, 80), flat(op.text).slice(-80)];
-    const isNew = () => { const n = notesPart(); return ends.every(e => n.includes(e)); };
+    // 0.9.97: the whole new text has to be there. Checking just the start and end said "already there" on a real edit,
+    // since an edit usually keeps both.
+    const ends = [flat(op.text).slice(0, 80)];
+    const isNew = () => notesPart().includes(flat(op.text));
     const linkSel = 'a.editNote, .editNote a, a[class*="editNote"]';
     if (op.fired) { // back after the save reloaded the page (0.9.96)
       await waitFor(isNew, 12000); const n = new Set([...document.querySelectorAll(linkSel)]).size;
