@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EC Ledger
 // @namespace    ec
-// @version      0.5
+// @version      0.6
 // @description  A pretend bank account on the AroFlo home page: invoices in, supplier accounts, pays, tax and estimated running costs out, replayed from the start date every run. Read only on AroFlo, Tradezone and CNW. Names and pay figures stay on this device.
 // @match        https://office.aroflo.com/ims/Site/Home/*
 // @grant        GM_xmlhttpRequest
@@ -405,7 +405,7 @@
   // ---------- what's kept on this device: the settings (names and pay figures included) and the last read ----------
   const SETKEY = 'ecLedgerSet', DATAKEY = 'ecLedgerData';
   let set = Object.assign(E.DEFAULTS(todayIso()), GM_getValue(SETKEY, null) || {}), data = GM_getValue(DATAKEY, null), res = null;
-  let tab = 'over', hard = false, ahead = false, more = 150, busy = false, box, note = '', loaded = '';
+  let tab = 'over', hard = false, ahead = false, more = 150, busy = false, box, note = '', loaded = '', sorted = false;
   const VER = (() => { try { return GM_info.script.version || ''; } catch (e) { return ''; } })(); // shown in the title, so it's clear which copy is installed
   const saveSet = () => { try { GM_setValue(SETKEY, set); } catch (e) {} };
   const calc = () => { res = data ? E.run(data, set, todayIso()) : null; };
@@ -550,8 +550,9 @@ ${e.kind == 'fuel' ? inp('estimates.' + i + '.veh', e.veh, 's', 'number') + '<sp
     : e.kind == 'pct' ? inp('estimates.' + i + '.pct', e.pct, 's', 'number') + '<span>%</span>'
     : inp('estimates.' + i + '.amt', e.amt, 's', 'number') + sel('estimates.' + i + '.per', e.per, [['week', 'a week'], ['month', 'a month'], ['year', 'a year, spread by month']], 'm')}
 <label><span>GST in it</span> ${chk('estimates.' + i + '.gst', e.gst)}</label><button class="btn rm" data-act="rm" data-list="estimates" data-i="${i}" title="Remove">&times;</button></div>`).join('');
-    const solar = res ? res.solar.map(s => { const m = (set.stc || {})[s.jn] || {}; return `<div class="f"><div class="g"><b>${esc(s.jn)}</b> ${esc(s.name).slice(0, 60)}<br><span>${s.how == 'line' ? 'AroFlo STC line: ' + $2(s.amt) : s.how == 'set' ? 'Your figure' : s.how == 'none' ? 'Marked no STCs' : 'No STC line in AroFlo, needs a figure'}, job day ${dNice(s.jobDay)}, invoiced ${$0(s.inc)}</span></div>
-<input class="s" type="number" step="any" inputmode="decimal" data-stc="${esc(s.jn)}" value="${m.amt == null ? '' : esc(m.amt)}" placeholder="$"><label><span>No STCs</span> <input type="checkbox" data-stcnone="${esc(s.jn)}"${m.none ? ' checked' : ''}></label></div>`; }).join('') : '';
+    const srow = s => { const m = (set.stc || {})[s.jn] || {}; return `<div class="f"><div class="g"><b>${esc(s.jn)}</b> ${esc(s.name).slice(0, 60)}<br><span>${s.how == 'line' ? 'AroFlo STC line: ' + $2(s.amt) : s.how == 'set' ? 'Your figure' : s.how == 'none' ? 'Marked no STCs' : 'No STC line in AroFlo, needs a figure'}, job day ${dNice(s.jobDay)}, invoiced ${$0(s.inc)}</span></div>
+<input class="s" type="number" step="any" inputmode="decimal" data-stc="${esc(s.jn)}" value="${m.amt == null ? '' : esc(m.amt)}" placeholder="$"><label><span>No STCs</span> <input type="checkbox" data-stcnone="${esc(s.jn)}"${m.none ? ' checked' : ''}></label></div>`; };
+    const sNeed = res ? res.solar.filter(x => x.how == 'need') : [], sDone = res ? res.solar.filter(x => x.how != 'need') : [], cnt = h => sDone.filter(x => x.how == h).length;
     return `<div class="card"><h4>The basics</h4>
 <div class="f"><span>Start date</span>${inp('start', set.start, 'm', 'date')}<span>End date</span>${inp('end', set.end, 'm', 'date')}<span>blank runs to today</span></div>
 <div class="f"><span>Opening balance</span>${inp('open', set.open, 's', 'number')}<span>what was in the bank on the start date, 0 if you don't know</span></div>
@@ -561,7 +562,7 @@ ${e.kind == 'fuel' ? inp('estimates.' + i + '.veh', e.veh, 's', 'number') + '<sp
 <div class="card"><h4>Clients on different terms</h4>${terms}<div class="f"><button class="btn" data-act="add" data-list="clientTerms">Add a client</button></div></div>
 <div class="card"><h4>Estimated running costs</h4><p class="hint">Guesses for what can't be read from here. Untick one to leave it out. Amounts are what leaves the bank.</p>${est}<div class="f"><button class="btn" data-act="add" data-list="estimates">Add an estimate</button></div></div>
 <div class="card"><h4>Extra days off</h4><p class="hint">Queensland public holidays are built in. Add show day or anything local, as dates like 2026-08-12, with commas between.</p><div class="f"><input class="g" type="text" data-hols="1" value="${esc((set.extraHols || []).join(', '))}"></div></div>
-${res ? `<div class="card"><h4>Solar jobs</h4><p class="hint">A job with an STC line in AroFlo uses it. Type a figure to use yours instead (or where there's no line), or tick No STCs. It's remembered for every refresh. Jobs still needing a figure are on top, biggest first.</p>${solar || 'No solar jobs found.'}</div>` : ''}
+${res ? `<div class="card"><h4>Solar jobs</h4><p class="hint">Only jobs with no STC line in AroFlo are listed here, biggest first, counted as $0 till you type a figure or tick No STCs (quotes, isos and reports). It's remembered for every refresh.</p>${sNeed.map(srow).join('') || '<div class="f">Nothing waiting on a figure.</div>'}${sDone.length ? `<div class="f"><button class="btn g2" data-act="sorted">${sorted ? 'Hide' : 'Show'} the ${sDone.length} already sorted</button><span>${[cnt('line') ? cnt('line') + ' off AroFlo STC lines' : '', cnt('set') ? cnt('set') + ' with your figure' : '', cnt('none') ? cnt('none') + ' marked no STCs' : ''].filter(Boolean).join(', ')}</span></div>${sorted ? '<p class="hint">A figure typed in here is used in place of the AroFlo line.</p>' + sDone.map(srow).join('') : ''}` : ''}</div>` : ''}
 <div class="card"><h4>Move the settings to another device</h4><p class="hint">Copy the code here, then paste it in the same box on the other device and tap Load. It holds the pay list, so treat it like the figures themselves. A full code replaces the settings on that device. An add-on code only adds what's in it.</p><textarea class="code" placeholder="Paste a settings code here to load it"></textarea><div class="f"><button class="btn" data-act="export">Copy my settings code</button><button class="btn g2" data-act="import">Load the code in the box</button></div><div class="warn lerr" style="display:none"></div></div>`;
   }
 
@@ -607,6 +608,7 @@ ${res ? `<div class="card"><h4>Solar jobs</h4><p class="hint">A job with an STC 
       const t = e.target.closest('[data-act]'); if (!t || t.tagName == 'INPUT') return;
       const a = t.dataset.act;
       if (a == 'more') { more += 300; draw(); }
+      if (a == 'sorted') { sorted = !sorted; draw(); }
       if (a == 'add') { (set[t.dataset.list] = set[t.dataset.list] || []).push(NEW[t.dataset.list]()); saveSet(); calc(); draw(); }
       if (a == 'rm') { set[t.dataset.list].splice(+t.dataset.i, 1); saveSet(); calc(); draw(); }
       if (a == 'export') {
