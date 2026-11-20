@@ -91,7 +91,7 @@ ok('everyone else on 14 days lands Fri 24 Jul', find('inv', t => /INV2/.test(t.l
 ok('invoice lands inc GST', find('inv', t => /INV2/.test(t.label))[0].amt, 2200);
 ok('void invoice left out', find('inv', t => /INV3/.test(t.label)).length, 0);
 ok('draft invoice left out', find('inv', t => /INV4/.test(t.label)).length, 0);
-ok('draft invoices are counted up for the note', R.drafts, { n: 1, inc: 770 });
+ok('draft invoices are counted up for the note', [R.drafts.n, R.drafts.inc, R.drafts.list.map(d => d.n)], [1, 770, ['INV4']]);
 ok('June invoice landing in July counts', find('inv', t => /INV0/.test(t.label))[0].d, '2026-07-08');
 ok('STC money 2 days after the last day on the job', find('stc')[0].d, '2026-07-04');
 ok('STC amount off the AroFlo line', find('stc')[0].amt, 1500);
@@ -132,7 +132,7 @@ ok('typed in STC figure used', R3.tx.filter(t => t.kind == 'stc')[0].amt, 1800);
 ok('marked no STCs', E.run(Object.assign({}, data, { stc: {} }), Object.assign({}, set, { stc: { '9001': { none: true } } }), '2026-11-20').solar[0].how, 'none');
 
 // ---- only what moves inside the period is counted, and money for earlier work is marked ----
-ok('old draft from before the start is not in the draft count', R.drafts, { n: 1, inc: 770 });
+ok('old draft from before the start is not in the draft count', [R.drafts.n, R.drafts.inc], [1, 770]);
 ok('June invoice paid in July is marked before start', find('inv', t => /INV0/.test(t.label))[0].pre, true);
 ok('July invoice is not marked', find('inv', t => /INV2/.test(t.label))[0].pre, false);
 ok('June supplier account is marked before start', find('sup', t => /CNW/.test(t.label))[0].pre, true);
