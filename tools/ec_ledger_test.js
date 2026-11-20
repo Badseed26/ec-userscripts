@@ -45,7 +45,7 @@ ok('short Saturday: 4 hour minimum', w.ot, 7); ok('short Saturday: gross', w.gro
 w = wk([T('Alex Test', '2026-11-08', '08:00', '14:00')]); // 6 hours on a Sunday at double
 ok('Sunday: double time', w.ot, 12);
 w = wk([T('Alex Test', '2026-11-04', '07:00', '08:30', '9001'), T('Alex Test', '2026-11-04', '08:30', '15:00', '9001')]); // travel then site, same day
-ok('travel counts as worked time', w.logged, 8); ok('travel sits inside the 38', w.ord, 38);
+ok('the guarantee for a full week', w.guar, 38); ok('travel counts as worked time', w.logged, 8); ok('travel sits inside the 38', w.ord, 38);
 ok('super is on plain time only', wk([T('Alex Test', '2026-11-04', '06:00', '17:00')]).sup, 50 * 38 * 0.12);
 // public holiday week: Mon 5 Oct 2026 (week Wed 30 Sep to Tue 6 Oct)
 const ph = (lines) => E.payWeek(P, '2026-09-30', E.hoursByDay(lines)['Alex Test'], hols, 12);

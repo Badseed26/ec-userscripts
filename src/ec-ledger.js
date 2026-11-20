@@ -105,7 +105,7 @@
         else if (w == 0) { if (h > 0) otEq += Math.max(h, 4) * 2; }
         else { ord += Math.min(h, 8); const ot = Math.max(h - 8, 0); otEq += Math.min(ot, 2) * 1.5 + Math.max(ot - 2, 0) * 2; }
       }
-      const out = { who: p.name, ws, pay: add(ws, 7), logged: r2(logged), ord: 0, top: 0, ot: 0, gross: 0, tax: 0, net: 0, sup: 0 };
+      const out = { who: p.name, ws, pay: add(ws, 7), logged: r2(logged), guar: r2(7.6 * wd), ord: 0, top: 0, ot: 0, gross: 0, tax: 0, net: 0, sup: 0 };
       if (!wd) return out;
       let base;
       if (p.type == 'salary') { out.gross = base = r2((+p.weekly || 0) * wd / 5); }
@@ -174,7 +174,7 @@
         const pd = add(ws, 7);
         people.forEach(p => {
           const w = payWeek(p, ws, H[p.name], hols, +S.superRate || 0); if (!w.gross) return;
-          w.type = p.type; w.short = p.type != 'salary' && w.top > 0.05 && add(ws, 6) < today; wageWeeks.push(w);
+          w.type = p.type; w.short = p.type != 'salary' && w.logged < w.guar - 0.05 && add(ws, 6) < today; wageWeeks.push(w); // short: a finished week with less logged than the guarantee
           push(pd, -w.net, 'set', 'wage', 'Pay, ' + p.name, { who: p.name, sub: 'week to ' + dShort(add(ws, 6)) });
           push(pd, -w.sup, 'set', 'super', 'Super, ' + p.name, { who: p.name });
           const ym = pd.slice(0, 7); held[ym] = (held[ym] || 0) + w.tax; grossM[ym] = (grossM[ym] || 0) + w.gross;
@@ -396,7 +396,7 @@
   // ---------- what's kept on this device: the settings (names and pay figures included) and the last read ----------
   const SETKEY = 'ecLedgerSet', DATAKEY = 'ecLedgerData';
   let set = Object.assign(E.DEFAULTS(todayIso()), GM_getValue(SETKEY, null) || {}), data = GM_getValue(DATAKEY, null), res = null;
-  let tab = 'over', hard = false, more = 150, busy = false, box, note = '';
+  let tab = 'over', hard = false, ahead = false, more = 150, busy = false, box, note = '';
   const saveSet = () => { try { GM_setValue(SETKEY, set); } catch (e) {} };
   const calc = () => { res = data ? E.run(data, set, todayIso()) : null; };
   const encode = o => btoa(unescape(encodeURIComponent(JSON.stringify(o))));
@@ -482,7 +482,7 @@
     const need = res.solar.filter(s => s.how == 'need').length;
     if (need) W.push(need + ' solar job' + (need > 1 ? 's have' : ' has') + ' no STC line in AroFlo, counted as $0 for now. Set the figures under Settings, Solar jobs.');
     const shortW = res.wageWeeks.filter(w => w.short).length;
-    if (shortW) W.push(shortW + ' pay week' + (shortW > 1 ? 's' : '') + ' had less than the guaranteed hours logged, so those were paid at the guarantee (see Pays).');
+    if (shortW) W.push(shortW + ' pay week' + (shortW > 1 ? 's' : '') + ' had fewer hours logged than the guarantee, so the pay for those is a floor, not what was worked (see Pays).');
     const oth = Object.keys(res.others);
     if (oth.length) W.push('Hours logged by people not on the pay list (not paid here): ' + oth.map(n => esc(n) + ' ' + Math.round(res.others[n]) + ' h').join(', ') + '.');
     if (res.drafts.n) W.push(res.drafts.n + ' invoice' + (res.drafts.n > 1 ? 's' : '') + ' still in progress or waiting on approval in AroFlo (' + $0(res.drafts.inc) + ') ' + (res.drafts.n > 1 ? 'are' : 'is') + ' not counted until approved.');
@@ -507,8 +507,8 @@ ${W.map(w => `<div class="warn">${w}</div>`).join('')}
 
   function vStatement() {
     if (!res) return vOver();
-    const T = E.tally(res, hard ? t => t.tag == 'data' : null), rows = T.rows.slice().reverse();
-    return `<label class="tg"><input type="checkbox" data-act="hard" ${hard ? 'checked' : ''}> Hard data only</label>
+    const T = E.tally(res, hard ? t => t.tag == 'data' : null), rows = T.rows.filter(r => ahead || !r.proj).reverse();
+    return `<label class="tg"><input type="checkbox" data-act="hard" ${hard ? 'checked' : ''}> Hard data only</label><label class="tg"><input type="checkbox" data-act="ahead" ${ahead ? 'checked' : ''}> Show what's coming up to ${dNice(res.end)} as well</label>
 <div class="card">${rows.slice(0, more).map(r => `<div class="row${r.proj ? ' proj' : ''}"><div class="d">${dNice(r.d)}</div><div class="t">${esc(r.label)}<span class="chip ${r.tag}">${TAG[r.tag]}</span>${r.proj ? '<span class="chip" style="background:#e2e8f0;color:#475569">projected</span>' : ''}${r.sub ? `<small>${esc(r.sub)}</small>` : ''}</div><div class="a">${amt(r.amt)}<small>${$2(r.bal)}</small></div></div>`).join('') || 'No lines yet.'}</div>
 ${rows.length > more ? `<button class="btn g2" data-act="more">Show more (${rows.length - more} older)</button>` : ''}`;
   }
@@ -517,10 +517,10 @@ ${rows.length > more ? `<button class="btn g2" data-act="more">Show more (${rows
     if (!res) return vOver();
     if (!res.wageWeeks.length) return `<div class="card">No one is on the pay list yet. Add people under Settings.</div>`;
     const by = {}; res.wageWeeks.forEach(w => { (by[w.pay] = by[w.pay] || []).push(w); });
-    const days = Object.keys(by).sort().reverse().slice(0, 30);
+    const days = Object.keys(by).filter(d => d <= res.today).sort().reverse().slice(0, 30);
     const oth = Object.keys(res.others);
-    return `<p class="hint">Payday is Wednesday for the Wednesday to Tuesday before. Hourly people are guaranteed 7.6 hours a weekday, travel counts as worked time, and overtime is anything over 8 hours on a weekday plus weekends and public holidays at the award rates.</p>
-${days.map(pd => `<div class="card"><h4>${dNice(pd)}${pd > res.today ? ' (projected)' : ''}, week ${E.dShort(E.add(pd, -7))} to ${E.dShort(E.add(pd, -1))}</h4>${by[pd].map(w => `<div class="row"><div class="t">${esc(w.who)}<small>${w.type == 'salary' ? 'salary' : w.logged + ' h logged, ' + w.ord + ' h plain' + (w.ot ? ', overtime worth ' + w.ot + ' h' : '') + (w.short ? ', topped up ' + w.top + ' h' : '')}</small></div><div class="a">${$2(w.gross)}<small>net ${$2(w.net)}, tax ${$2(w.tax)}, super ${$2(w.sup)}</small></div></div>`).join('')}</div>`).join('')}
+    return `<p class="hint">Payday is Wednesday for the Wednesday to Tuesday before. Hourly people are guaranteed 7.6 hours a weekday, travel counts as worked time, and overtime is anything over 8 hours on a weekday plus weekends and public holidays at the award rates. Paydays still to come are counted at the guarantee and sit in the Statement.</p>
+${days.map(pd => `<div class="card"><h4>${dNice(pd)}, week ${E.dShort(E.add(pd, -7))} to ${E.dShort(E.add(pd, -1))}</h4>${by[pd].map(w => `<div class="row"><div class="t">${esc(w.who)}<small>${w.type == 'salary' ? 'salary' : w.logged + ' h logged, ' + w.ord + ' h plain' + (w.ot ? ', overtime worth ' + w.ot + ' h' : '') + (w.top > 0.05 ? ', topped up ' + w.top + ' h' : '') + (w.short ? ', under the guarantee' : '')}</small></div><div class="a">${$2(w.gross)}<small>net ${$2(w.net)}, tax ${$2(w.tax)}, super ${$2(w.sup)}</small></div></div>`).join('')}</div>`).join('')}
 ${oth.length ? `<div class="card"><h4>Logging hours but not on the pay list</h4>${oth.map(n => `<div class="row"><div class="t">${esc(n)}</div><div class="a">${Math.round(res.others[n])} h since ${E.dShort(res.set.start)}</div></div>`).join('')}</div>` : ''}`;
   }
 
@@ -610,6 +610,7 @@ ${res ? `<div class="card"><h4>Solar jobs</h4><p class="hint">A job with an STC 
     box.querySelector('.bd').addEventListener('change', e => {
       const el = e.target;
       if (el.dataset.act == 'hard') { hard = el.checked; return draw(); }
+      if (el.dataset.act == 'ahead') { ahead = el.checked; return draw(); }
       if (el.dataset.k) put(el.dataset.k, el);
       else if (el.dataset.hols) set.extraHols = el.value.split(/[,\s]+/).filter(x => /^\d{4}-\d{2}-\d{2}$/.test(x));
       else if (el.dataset.stc) { set.stc = set.stc || {}; if (el.value === '') delete set.stc[el.dataset.stc]; else set.stc[el.dataset.stc] = { amt: +el.value }; }
