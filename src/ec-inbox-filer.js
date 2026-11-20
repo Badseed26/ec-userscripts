@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EC Inbox Filer
 // @namespace    ec
-// @version      0.9.93
+// @version      0.9.94
 // @description  Watches the shared Outlook for builder POs, revised POs and Energex safety advice, reads them with Claude Sonnet and files them onto the right AroFlo task. Unmatched ones, dates to book and anything odd go to follow ups. Runs only in the two filer tabs (Outlook and AroFlo opened with #ec-filer).
 // @match        https://outlook.cloud.microsoft/*
 // @match        https://outlook.office.com/*
@@ -1095,14 +1095,16 @@ if (ON_AF) {
     let zone = ed.container ? ed.container.$ : b, btn = [], seen = [];
     for (let i = 0; i < 10 && zone && zone != document.body; i++, zone = zone.parentElement) {
       const c = [...zone.querySelectorAll(ctl)].filter(x => x.id != 'btnAddNote' && x.id != 'btnAddNoteHTML' && !(main && main.contains(x)) && !(ed.container && ed.container.$.contains(x)));
-      seen = c.map(lbl).filter(Boolean); const sv = c.filter(x => /\bsave\b/i.test(lbl(x)) && !/save task|signature|quote|header/i.test(lbl(x))); // never Save Task
+      seen = c.map(lbl).filter(Boolean); const isLink = x => x === a || (x.matches && x.matches('a.editNote, .editNote a, a[class*="editNote"]'));
+      // 0.9.94: AroFlo's button under an open note edit reads "Edit Note" (the 0.9.93 test saw it), so that counts too, never the edit link itself
+      const sv = c.filter(x => !isLink(x) && ((/\bsave\b/i.test(lbl(x)) && !/save task|signature|quote|header/i.test(lbl(x))) || /^\s*(edit|update) note\s*$/i.test(lbl(x)))); // never Save Task
       if (sv.length) { const exact = sv.filter(x => /save note/i.test(lbl(x))); btn = exact.length ? exact : sv; break; } }
     const f = zone && zone.querySelector('select[name*="NoteFilter"]'), st = zone && zone.querySelector('input[name*="NoteSticky"]');
     if ((f && f.options[f.selectedIndex].text != 'Internal Only') || (st && st.checked)) { ed.setData(old); ed.resetDirty(); return opDone(op, { noteErr: 'the note isn\'t Internal Only (or it\'s sticky), nothing changed' }); }
     if (btn.length != 1) { ed.setData(old); ed.resetDirty(); return opDone(op, { noteErr: 'found ' + btn.length + ' save buttons by that note, nothing changed. Controls near it: ' + [...new Set(seen)].slice(0, 12).join(' | ') }); }
     ed.setData(op.html || ('<p>' + esc(op.text) + '</p>')); await new Promise(r => later(r, 600));
     const swapped = flat(plain(ed.getData())).includes(ends[0]);
-    if (op.test) { ed.setData(old); ed.resetDirty(); return opDone(op, { test: 'Test ok: found the one note, editor opened, Internal Only, Save Note found, new text ' + (swapped ? 'went in' : 'did NOT go in') + ', save button "' + lbl(btn[0]) + '", old text put back, nothing saved' }); }
+    if (op.test) { ed.setData(old); ed.resetDirty(); return opDone(op, { test: 'Test ok: found the one note, editor opened, Internal Only, Save Note found, new text ' + (swapped ? 'went in' : 'did NOT go in') + ', save button "' + lbl(btn[0]) + '" (' + btn[0].tagName.toLowerCase() + (btn[0].id ? ' #' + btn[0].id : '') + (btn[0].className ? ' .' + String(btn[0].className).split(' ')[0] : '') + '), edit link was ' + a.tagName.toLowerCase() + ' "' + lbl(a) + '", old text put back, nothing saved' }); }
     if (!swapped) { ed.setData(old); ed.resetDirty(); return opDone(op, { noteErr: 'the new text didn\'t take in the editor, nothing changed' }); }
     btn[0].click(); const ok = await waitFor(isNew, 12000);
     return opDone(op, ok ? { note: op.text, edited: true } : { noteErr: 'saved but the new text didn\'t show, check the note by hand' });
