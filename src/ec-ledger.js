@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EC Ledger
 // @namespace    ec
-// @version      0.2
+// @version      0.3
 // @description  A pretend bank account on the AroFlo home page: invoices in, supplier accounts, pays, tax and estimated running costs out, replayed from the start date every run. Read only on AroFlo, Tradezone and CNW. Names and pay figures stay on this device.
 // @match        https://office.aroflo.com/ims/Site/Home/*
 // @grant        GM_xmlhttpRequest
@@ -20,7 +20,9 @@
   if (window.top !== window.self) return;
 
   // What it does (20/11): everything is read only, nothing is saved or changed on AroFlo, Tradezone or CNW.
-  // Every run reads the lot again from the quarter before the start date, then replays it into a statement:
+  // Every run reads the lot again, from a month before the quarter before the start date, then replays it into a statement.
+  // A line is only counted when its money moves inside the period (start date to today, or to the end date), the way a bank
+  // statement for those dates would show it. That takes in money for earlier work that lands after the start, marked as such:
   //   in:  invoices (inc GST) on their payment terms, STC money 2 days after the job
   //   out: Tradezone and CNW accounts 30 days end of month, other suppliers off AroFlo's purchase orders on the day,
   //        pays every Wednesday for the Wednesday to Tuesday before, super with each pay, held tax and GST on the ATO's dates,
@@ -60,7 +62,7 @@
     // The start of the financial year today sits in, and what a fresh install starts with. The estimates are guesses to edit.
     const fyStart = today => (+today.slice(5, 7) >= 7 ? +today.slice(0, 4) : +today.slice(0, 4) - 1) + '-07-01';
     const DEFAULTS = today => ({
-      v: 1, start: fyStart(today), open: 0, terms: 14, clientTerms: [], superRate: 12, stcDelay: 2, horizon: 42,
+      v: 1, start: fyStart(today), end: '', open: 0, terms: 14, clientTerms: [], superRate: 12, stcDelay: 2, horizon: 42,
       people: [], // { name, type: 'hourly' or 'salary', rate (an hour) or weekly (a week), from, to }
       ownSup: 'trade\\s?zone|cnw', // suppliers read off their own account pages, so their AroFlo purchase orders are left out
       estimates: [
@@ -122,12 +124,14 @@
     function run(data, set, today) {
       const S = Object.assign(DEFAULTS(today), set || {});
       const hols = new Set(HOLS.concat(S.extraHols || []));
-      const from = data.from || add(S.start, -7), end = add(today, +S.horizon || 0);
+      // the period: the start date to today (plus the look ahead), or to the end date when one in the past is set
+      const asAt = S.end && S.end >= S.start && S.end < today ? S.end : today, ended = asAt != today;
+      const from = data.from || add(S.start, -7), end = ended ? asAt : add(today, +S.horizon || 0), startYm = S.start.slice(0, 7);
       const tx = [];
       const push = (d, amt, tag, kind, label, extra) => { if (!d || !amt || !isFinite(amt)) return; tx.push(Object.assign({ d, amt: r2(amt), tag, kind, label }, extra || {})); };
       // GST by calendar quarter, counted when the money moves. Kept apart for data and estimates so each can stand alone.
       const gst = { data: {}, est: {} };
-      const addGst = (b, d, g) => { const k = d.slice(0, 4) + '-Q' + Math.ceil(+d.slice(5, 7) / 3); gst[b][k] = (gst[b][k] || 0) + g; };
+      const addGst = (b, d, g) => { if (d > end) return; const k = d.slice(0, 4) + '-Q' + Math.ceil(+d.slice(5, 7) / 3); gst[b][k] = (gst[b][k] || 0) + g; };
 
       // ---- money in: invoices, on the builder's terms, landing on a weekday ----
       const termFor = cl => { const c = (S.clientTerms || []).find(t => t && t.match && String(cl || '').toLowerCase().includes(String(t.match).toLowerCase())); return c ? +c.days || 0 : +S.terms || 0; };
@@ -136,9 +140,9 @@
         status[i.st || '?'] = (status[i.st || '?'] || 0) + 1;
         if (dead(i.st)) return;
         const ex = +i.ex || 0, inc = +i.inc || ex * 1.1; if (!inc) return;
-        if (draft(i.st)) { drafts.n++; drafts.inc = r2(drafts.inc + inc); return; }
         const d = nextBiz(add(i.d, termFor(i.cl)));
-        push(d, inc, 'data', 'inv', 'Invoice ' + i.n + (i.cl ? ', ' + i.cl : ''), { ref: i.jn || '', sub: i.tn || '' });
+        if (draft(i.st)) { if (d >= S.start && i.d <= asAt) { drafts.n++; drafts.inc = r2(drafts.inc + inc); } return; }
+        push(d, inc, 'data', 'inv', 'Invoice ' + i.n + (i.cl ? ', ' + i.cl : ''), { ref: i.jn || '', sub: i.tn || '', pre: i.d < S.start });
         addGst('data', d, inc - (ex || inc / 1.1));
         if (i.jn) { const j = jobs[i.jn] = jobs[i.jn] || { jn: i.jn, name: i.tn || '', text: '', first: i.d, last: i.d, inc: 0 }; j.inc = r2(j.inc + inc); j.text += ' ' + (i.tn || '') + ' ' + (i.desc || ''); if (i.d < j.first) j.first = i.d; if (i.d > j.last) j.last = i.d; }
       });
@@ -153,15 +157,15 @@
         const days = (lastOn[j.jn] || []).filter(d => d <= add(j.last, 3)).sort(), jobDay = days.length ? days[days.length - 1] : j.first;
         const how = mine ? (mine.none ? 'none' : 'set') : line ? 'line' : 'need';
         const amt = how == 'set' ? Math.abs(+mine.amt || 0) : how == 'line' ? Math.abs(+line.amt || 0) : 0, d = add(jobDay, +S.stcDelay || 0);
-        if (d < S.start) return; // the read goes back a quarter before the start, but a job whose STC money landed before the start isn't part of this
+        if (d < S.start || d > end) return; // the read goes back before the start, but a job only belongs here when its STC money lands inside the period
         solar.push({ jn: j.jn, name: j.name, how, amt, d, jobDay, inc: j.inc });
-        push(d, amt, how == 'set' ? 'set' : 'data', 'stc', 'STCs, job ' + j.jn, { ref: j.jn, sub: j.name });
+        push(d, amt, how == 'set' ? 'set' : 'data', 'stc', 'STCs, job ' + j.jn, { ref: j.jn, sub: j.name, pre: jobDay < S.start });
       });
 
       // ---- supplier accounts: a month's orders are paid on the last weekday of the next month ----
       const supM = {};
       (data.sup || []).forEach(o => { const inc = +o.inc || 0; if (!inc || !o.d) return; const ym = o.d.slice(0, 7), k = o.sup + '|' + ym, m = supM[k] = supM[k] || { sup: o.sup, ym, inc: 0, n: 0 }; m.inc += inc; m.n++; });
-      Object.values(supM).forEach(m => { const d = prevBiz(eom(addMonth(m.ym, 1))); push(d, -m.inc, 'data', 'sup', m.sup + ' account, ' + mName(m.ym) + ' (' + m.n + ' orders)'); addGst('data', d, -m.inc / 11); });
+      Object.values(supM).forEach(m => { const d = prevBiz(eom(addMonth(m.ym, 1))); push(d, -m.inc, 'data', 'sup', m.sup + ' account, ' + mName(m.ym) + ' (' + m.n + ' orders)', { n: m.n, pre: m.ym < startYm }); addGst('data', d, -m.inc / 11); });
 
       // ---- other suppliers: AroFlo's purchase orders, paid on the day, GST added ----
       let own; try { own = new RegExp(S.ownSup || 'trade\\s?zone|cnw', 'i'); } catch (e) { own = /trade\s?zone|cnw/i; }
@@ -175,14 +179,14 @@
         const pd = add(ws, 7);
         people.forEach(p => {
           const w = payWeek(p, ws, H[p.name], hols, +S.superRate || 0); if (!w.gross) return;
-          w.type = p.type; w.short = p.type != 'salary' && w.logged < w.guar - 0.05 && add(ws, 6) < today; wageWeeks.push(w); // short: a finished week with less logged than the guarantee
-          push(pd, -w.net, 'set', 'wage', 'Pay, ' + p.name, { who: p.name, sub: 'week to ' + dShort(add(ws, 6)) });
-          push(pd, -w.sup, 'set', 'super', 'Super, ' + p.name, { who: p.name });
+          w.type = p.type; w.short = p.type != 'salary' && w.logged < w.guar - 0.05 && add(ws, 6) < asAt; wageWeeks.push(w); // short: a finished week with less logged than the guarantee
+          push(pd, -w.net, 'set', 'wage', 'Pay, ' + p.name, { who: p.name, sub: 'week to ' + dShort(add(ws, 6)), pre: ws < S.start });
+          push(pd, -w.sup, 'set', 'super', 'Super, ' + p.name, { who: p.name, pre: ws < S.start });
           const ym = pd.slice(0, 7); held[ym] = (held[ym] || 0) + w.tax; grossM[ym] = (grossM[ym] || 0) + w.gross;
         });
       }
       // tax held from pays: to the ATO by the 21st of the next month, or with the BAS on the 28th for the last month of a quarter
-      Object.keys(held).forEach(ym => { const m = +ym.slice(5, 7), q = m % 3 == 0; push(nextBiz(addMonth(ym, m == 12 ? 2 : 1) + (q ? '-28' : '-21')), -held[ym], 'set', 'payg', 'Tax held from ' + mName(ym) + ' pays, to the ATO'); });
+      Object.keys(held).forEach(ym => { const m = +ym.slice(5, 7), q = m % 3 == 0; push(nextBiz(addMonth(ym, m == 12 ? 2 : 1) + (q ? '-28' : '-21')), -held[ym], 'set', 'payg', 'Tax held from ' + mName(ym) + ' pays, to the ATO', { pre: ym < startYm }); });
 
       // ---- the running costs nobody can see from here: estimates ----
       const months = []; for (let ym = from.slice(0, 7); ym <= end.slice(0, 7); ym = addMonth(ym, 1)) months.push(ym);
@@ -199,32 +203,35 @@
       // ---- GST: each quarter's lot is paid with the BAS (28 April, July and October, and 28 February for October to December) ----
       [...new Set(Object.keys(gst.data).concat(Object.keys(gst.est)))].forEach(k => {
         const y = +k.slice(0, 4), q = +k.slice(6), due = nextBiz(q == 4 ? (y + 1) + '-02-28' : y + '-' + ['04', '07', '10'][q - 1] + '-28'), nm = ['January to March', 'April to June', 'July to September', 'October to December'][q - 1];
-        push(due, -(gst.data[k] || 0), 'data', 'gst', 'GST, ' + nm + ' (invoices less supplier bills)');
-        push(due, -(gst.est[k] || 0), 'est', 'gst', 'GST back on the estimates, ' + nm);
+        const pre = y + '-' + p2(q * 3) < startYm; // a quarter that finished before the start
+        push(due, -(gst.data[k] || 0), 'data', 'gst', 'GST, ' + nm + ' (invoices less supplier bills)', { pre });
+        push(due, -(gst.est[k] || 0), 'est', 'gst', 'GST back on the estimates, ' + nm, { pre });
       });
 
       // ATO bills already building that land after the window ends (the current quarter's GST and the latest held tax)
       const atoLater = r2(tx.filter(t => (t.kind == 'gst' || t.kind == 'payg') && t.d > end).reduce((a, t) => a - t.amt, 0));
       const out = tx.filter(t => t.d >= S.start && t.d <= end).sort((a, b) => a.d < b.d ? -1 : a.d > b.d ? 1 : b.amt - a.amt);
-      out.forEach(t => { t.proj = t.d > today; });
+      out.forEach(t => { t.proj = t.d > asAt; });
       // hours logged by anyone not on the pay list, so they can be added if wanted
       const names = new Set(people.map(p => p.name)), others = {};
-      Object.keys(H).forEach(n => { if (names.has(n)) return; const h = Object.keys(H[n]).filter(d => d >= S.start).reduce((a, d) => a + H[n][d], 0); if (h > 0) others[n] = r2(h); });
-      return { set: S, today, end, from, tx: out, wageWeeks: wageWeeks.filter(w => w.pay >= S.start && w.pay <= end), solar: solar.sort((a, b) => (a.how == 'need') != (b.how == 'need') ? (a.how == 'need' ? -1 : 1) : a.how == 'need' ? b.inc - a.inc : a.d < b.d ? 1 : -1), others, atoLater, status, drafts };
+      Object.keys(H).forEach(n => { if (names.has(n)) return; const h = Object.keys(H[n]).filter(d => d >= S.start && d <= asAt).reduce((a, d) => a + H[n][d], 0); if (h > 0) others[n] = r2(h); });
+      // what's inside the period, for the note under the Overview
+      const real = out.filter(t => !t.proj), counts = { inv: real.filter(t => t.kind == 'inv').length, po: real.filter(t => t.kind == 'po').length, sup: real.filter(t => t.kind == 'sup').reduce((a, t) => a + (t.n || 0), 0), times: (data.times || []).filter(t => { const d = String(t.s).slice(0, 10); return d >= S.start && d <= asAt; }).length };
+      return { set: S, today: asAt, ended, counts, end, from, tx: out, wageWeeks: wageWeeks.filter(w => w.pay >= S.start && w.pay <= end), solar: solar.sort((a, b) => (a.how == 'need') != (b.how == 'need') ? (a.how == 'need' ? -1 : 1) : a.how == 'need' ? b.inc - a.inc : a.d < b.d ? 1 : -1), others, atoLater, status, drafts };
     }
 
     // The running balance and headline numbers for a set of lines: all of them, or only the ones a filter keeps.
     function tally(res, keep) {
-      let bal = +res.set.open || 0, now = bal, inn = 0, out = 0, low = { d: res.set.start, bal };
+      let bal = +res.set.open || 0, now = bal, inn = 0, out = 0, preIn = 0, preOut = 0, low = { d: res.set.start, bal };
       const kinds = {}, weeks = {};
       const rows = res.tx.filter(keep || (() => true)).map(t => {
         bal = r2(bal + t.amt);
-        if (!t.proj) { now = bal; if (t.amt > 0) inn += t.amt; else out -= t.amt; if (bal < low.bal) low = { d: t.d, bal }; kinds[t.kind] = r2((kinds[t.kind] || 0) + t.amt); }
+        if (!t.proj) { now = bal; if (t.amt > 0) inn += t.amt; else out -= t.amt; if (t.pre) { if (t.amt > 0) preIn += t.amt; else preOut -= t.amt; } if (bal < low.bal) low = { d: t.d, bal }; kinds[t.kind] = r2((kinds[t.kind] || 0) + t.amt); }
         const mon = add(t.d, -((dow(t.d) + 6) % 7)), w = weeks[mon] = weeks[mon] || { ws: mon, in: 0, out: 0, bal: 0, proj: t.proj };
         if (t.amt > 0) w.in = r2(w.in + t.amt); else w.out = r2(w.out - t.amt); w.bal = bal;
         return Object.assign({}, t, { bal });
       });
-      return { rows, now: r2(now), in: r2(inn), out: r2(out), low, end: bal, kinds, weeks: Object.values(weeks).sort((a, b) => a.ws < b.ws ? -1 : 1) };
+      return { rows, now: r2(now), in: r2(inn), out: r2(out), preIn: r2(preIn), preOut: r2(preOut), low, end: bal, kinds, weeks: Object.values(weeks).sort((a, b) => a.ws < b.ws ? -1 : 1) };
     }
 
     return { run, tally, payWeek, withhold, hoursByDay, DEFAULTS, HOLS, add, dow, nextBiz, prevBiz, eom, addMonth, fyStart, mName, dShort, r2 };
@@ -383,11 +390,12 @@
     return orders;
   }
 
-  // ---------- one full read. Goes back to the quarter before the start date, since that quarter's supplier accounts,
-  // held tax and GST all leave the bank after the start. ----------
+  // ---------- one full read. Goes back to a month before the quarter before the start date: that quarter's supplier accounts,
+  // held tax and GST all leave the bank after the start, and its own first month is paid for things from the month before.
+  // Reading that far back is only so those later payments come out right. Nothing dated before the start is counted. ----------
   async function readAll(set, say) {
     const today = todayIso(), S = Object.assign(E.DEFAULTS(today), set || {});
-    const qm = Math.floor((+S.start.slice(5, 7) - 1) / 3) * 3 + 1, from = E.addMonth(S.start.slice(0, 4) + '-' + p2(qm), -3) + '-01';
+    const qm = Math.floor((+S.start.slice(5, 7) - 1) / 3) * 3 + 1, from = E.addMonth(S.start.slice(0, 4) + '-' + p2(qm), -4) + '-01';
     const A = await readAroflo(from, today, say);
     const data = { v: 1, from, start: S.start, at: Date.now(), invoices: A.invoices, pos: A.pos, times: A.times, stc: A.stc, sup: [], warn: A.warn.slice() };
     for (const sp of SUPS) { try { data.sup.push(...await readSupplier(sp, from, say)); } catch (e) { data.warn.push(e.message); } }
@@ -470,10 +478,10 @@
     if (!split) a += 'H' + X(Math.min(td, t1)).toFixed(1); else b += 'H' + X(t1).toFixed(1);
     return `<svg viewBox="0 0 ${W} ${Hh}" role="img" aria-label="Balance over time">
 <line x1="${L}" x2="${W - R}" y1="${Y(0).toFixed(1)}" y2="${Y(0).toFixed(1)}" stroke="#94a3b8" stroke-width="1"/>
-<line x1="${X(td).toFixed(1)}" x2="${X(td).toFixed(1)}" y1="${Tp}" y2="${Hh - B}" stroke="#cbd5e1" stroke-dasharray="3 3"/>
+${res.ended ? '' : `<line x1="${X(td).toFixed(1)}" x2="${X(td).toFixed(1)}" y1="${Tp}" y2="${Hh - B}" stroke="#cbd5e1" stroke-dasharray="3 3"/>`}
 <path d="${a}" fill="none" stroke="#0d9488" stroke-width="2"/>${b ? `<path d="${b}" fill="none" stroke="#0d9488" stroke-width="2" stroke-dasharray="5 4"/>` : ''}
 <text x="${L}" y="11" font-size="11" fill="#64748b">high ${$0(hi)}, low ${$0(lo)}</text>
-<text x="${L}" y="${Hh - 5}" font-size="11" fill="#64748b">${E.dShort(res.set.start)}</text><text x="${X(td).toFixed(1)}" y="${Hh - 5}" font-size="11" fill="#64748b" text-anchor="middle">today</text><text x="${W - R}" y="${Hh - 5}" font-size="11" fill="#64748b" text-anchor="end">${E.dShort(res.end)}</text></svg>`;
+<text x="${L}" y="${Hh - 5}" font-size="11" fill="#64748b">${E.dShort(res.set.start)}</text>${res.ended ? '' : `<text x="${X(td).toFixed(1)}" y="${Hh - 5}" font-size="11" fill="#64748b" text-anchor="middle">today</text>`}<text x="${W - R}" y="${Hh - 5}" font-size="11" fill="#64748b" text-anchor="end">${E.dShort(res.end)}</text></svg>`;
   }
 
   function vOver() {
@@ -490,27 +498,28 @@
     (data.warn || []).forEach(w => W.push(esc(w)));
     if (data.start != set.start) W.push('The start date has changed since the last read. Hit Refresh to read again.');
     const kinds = Object.keys(KIND).filter(k => T.kinds[k]).map(k => `<div class="row"><div class="t">${KIND[k]}</div><div class="a">${amt(T.kinds[k], $0)}</div></div>`).join('');
-    const at = new Date(data.at), sups = {}; (data.sup || []).forEach(o => { sups[o.sup] = (sups[o.sup] || 0) + 1; });
+    const at = new Date(data.at);
     return `<label class="tg"><input type="checkbox" data-act="hard" ${hard ? 'checked' : ''}> Hard data only (leave out my pay settings and the estimates)</label>
 <div class="tiles">
-<div class="tile"><div class="v ${T.now < 0 ? 'neg' : ''}">${$0(T.now)}</div><div class="l">Balance today</div></div>
+<div class="tile"><div class="v ${T.now < 0 ? 'neg' : ''}">${$0(T.now)}</div><div class="l">${res.ended ? 'Balance, ' + dNice(res.today) : 'Balance today'}</div></div>
 <div class="tile"><div class="v">${$0(T.in)}</div><div class="l">In since ${E.dShort(res.set.start)}</div></div>
 <div class="tile"><div class="v">${$0(T.out)}</div><div class="l">Out since ${E.dShort(res.set.start)}</div></div>
 <div class="tile"><div class="v ${T.low.bal < 0 ? 'neg' : ''}">${$0(T.low.bal)}</div><div class="l">Lowest point, ${dNice(T.low.d)}</div></div>
-<div class="tile"><div class="v ${T.end < 0 ? 'neg' : ''}">${$0(T.end)}</div><div class="l">Projected, ${dNice(res.end)}</div></div>
+${res.ended ? '' : `<div class="tile"><div class="v ${T.end < 0 ? 'neg' : ''}">${$0(T.end)}</div><div class="l">Projected, ${dNice(res.end)}</div></div>`}
 ${hard ? '' : `<div class="tile"><div class="v">${$0(res.atoLater)}</div><div class="l">ATO bills building, due later</div></div>`}
 </div>
 ${W.map(w => `<div class="warn">${w}</div>`).join('')}
 <div class="card"><h4>Balance</h4>${chart(T)}</div>
-<div class="card"><h4>Where it went, to today</h4>${kinds || 'No lines yet.'}</div>
-<p class="hint">Read ${at.toLocaleDateString('en-AU')} ${at.toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit' })}: ${data.invoices.length} invoices, ${data.times.length} timesheet lines, ${data.pos.length} purchase orders${Object.keys(sups).map(k => ', ' + sups[k] + ' ' + k + ' orders').join('')}. Money is inc GST, the way a bank sees it. Every invoice is counted as paid on its terms.</p>`;
+<div class="card"><h4>Where it went, ${E.dShort(res.set.start)} to ${res.ended ? E.dShort(res.today) : 'today'}</h4>${kinds || 'No lines yet.'}</div>
+${T.preIn || T.preOut ? `<div class="card"><h4>From before the start date</h4><p class="hint">Only money that moved inside the period is counted, the same as a bank statement for those dates. Some of that is for work or bills from before ${E.dShort(res.set.start)} that got paid after it: <b>${$0(T.preIn)}</b> in and <b>${$0(T.preOut)}</b> out. Those lines are marked before start in the Statement. Nothing that moved before the start date is in here.</p></div>` : ''}
+<p class="hint">Read ${at.toLocaleDateString('en-AU')} ${at.toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit' })}. Inside the period: ${res.counts.inv} invoices paid, ${res.counts.sup} supplier orders paid on account, ${res.counts.po} other purchase orders, ${res.counts.times} timesheet lines. Money is inc GST, the way a bank sees it. Every invoice is counted as paid on its terms.</p>`;
   }
 
   function vStatement() {
     if (!res) return vOver();
     const T = E.tally(res, hard ? t => t.tag == 'data' : null), rows = T.rows.filter(r => ahead || !r.proj).reverse();
-    return `<label class="tg"><input type="checkbox" data-act="hard" ${hard ? 'checked' : ''}> Hard data only</label><label class="tg"><input type="checkbox" data-act="ahead" ${ahead ? 'checked' : ''}> Show what's coming up to ${dNice(res.end)} as well</label>
-<div class="card">${rows.slice(0, more).map(r => `<div class="row${r.proj ? ' proj' : ''}"><div class="d">${dNice(r.d)}</div><div class="t">${esc(r.label)}<span class="chip ${r.tag}">${TAG[r.tag]}</span>${r.proj ? '<span class="chip" style="background:#e2e8f0;color:#475569">projected</span>' : ''}${r.sub ? `<small>${esc(r.sub)}</small>` : ''}</div><div class="a">${amt(r.amt)}<small>${$2(r.bal)}</small></div></div>`).join('') || 'No lines yet.'}</div>
+    return `<label class="tg"><input type="checkbox" data-act="hard" ${hard ? 'checked' : ''}> Hard data only</label>${res.ended ? '' : `<label class="tg"><input type="checkbox" data-act="ahead" ${ahead ? 'checked' : ''}> Show what's coming up to ${dNice(res.end)} as well</label>`}
+<div class="card">${rows.slice(0, more).map(r => `<div class="row${r.proj ? ' proj' : ''}"><div class="d">${dNice(r.d)}</div><div class="t">${esc(r.label)}<span class="chip ${r.tag}">${TAG[r.tag]}</span>${r.pre ? '<span class="chip" style="background:#fee2e2;color:#991b1b">before start</span>' : ''}${r.proj ? '<span class="chip" style="background:#e2e8f0;color:#475569">projected</span>' : ''}${r.sub ? `<small>${esc(r.sub)}</small>` : ''}</div><div class="a">${amt(r.amt)}<small>${$2(r.bal)}</small></div></div>`).join('') || 'No lines yet.'}</div>
 ${rows.length > more ? `<button class="btn g2" data-act="more">Show more (${rows.length - more} older)</button>` : ''}`;
   }
 
@@ -543,7 +552,8 @@ ${e.kind == 'fuel' ? inp('estimates.' + i + '.veh', e.veh, 's', 'number') + '<sp
     const solar = res ? res.solar.map(s => { const m = (set.stc || {})[s.jn] || {}; return `<div class="f"><div class="g"><b>${esc(s.jn)}</b> ${esc(s.name).slice(0, 60)}<br><span>${s.how == 'line' ? 'AroFlo STC line: ' + $2(s.amt) : s.how == 'set' ? 'Your figure' : s.how == 'none' ? 'Marked no STCs' : 'No STC line in AroFlo, needs a figure'}, job day ${dNice(s.jobDay)}, invoiced ${$0(s.inc)}</span></div>
 <input class="s" type="number" step="any" inputmode="decimal" data-stc="${esc(s.jn)}" value="${m.amt == null ? '' : esc(m.amt)}" placeholder="$"><label><span>No STCs</span> <input type="checkbox" data-stcnone="${esc(s.jn)}"${m.none ? ' checked' : ''}></label></div>`; }).join('') : '';
     return `<div class="card"><h4>The basics</h4>
-<div class="f"><span>Start date</span>${inp('start', set.start, 'm', 'date')}<span>Opening balance</span>${inp('open', set.open, 's', 'number')}</div>
+<div class="f"><span>Start date</span>${inp('start', set.start, 'm', 'date')}<span>End date</span>${inp('end', set.end, 'm', 'date')}<span>blank runs to today</span></div>
+<div class="f"><span>Opening balance</span>${inp('open', set.open, 's', 'number')}<span>what was in the bank on the start date, 0 if you don't know</span></div>
 <div class="f"><span>Invoices paid after</span>${inp('terms', set.terms, 's', 'number')}<span>days, unless a client below says different</span></div>
 <div class="f"><span>Super</span>${inp('superRate', set.superRate, 's', 'number')}<span>%</span><span>STC money lands</span>${inp('stcDelay', set.stcDelay, 's', 'number')}<span>days after the job</span><span>Look ahead</span>${inp('horizon', set.horizon, 's', 'number')}<span>days</span></div></div>
 <div class="card"><h4>Pay list</h4><p class="hint">Names and pay figures stay in this device's Tampermonkey. They are never in the script or sent anywhere.</p>${people}<div class="f"><button class="btn" data-act="add" data-list="people">Add a person</button>${names.length ? '' : '<span>Hit Refresh first so the names off the timesheets show here.</span>'}</div></div>

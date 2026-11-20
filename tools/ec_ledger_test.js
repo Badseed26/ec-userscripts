@@ -70,6 +70,7 @@ const data = {
     { n: 'INVM', d: '2026-05-11', st: 'Approved', ex: 5000, inc: 5500, cl: 'Mrs Smith', jn: '8900', tn: 'May solar install' }, // before the start: read for the GST, not a solar job to chase
     { n: 'INVJ', d: '2026-07-02', st: 'Approved', ex: 4000, inc: 4400, cl: 'Mrs Smith', jn: '8950', tn: 'solar job done in June, invoiced in July' },
     { n: 'INV4', d: '2026-07-15', st: 'IN_PROGRESS', ex: 700, inc: 770, cl: 'Mrs Smith', jn: '9004', tn: 'still being written' },
+    { n: 'INV5', d: '2026-05-01', st: 'IN_PROGRESS', ex: 900, inc: 990, cl: 'Mrs Smith', jn: '9005', tn: 'old draft from before the start' },
   ],
   pos: [
     { no: '4401', d: '2026-07-08', sup: 'Hardware Store', ex: 100, jn: '9002' },
@@ -129,6 +130,41 @@ ok('no STC line: flagged', R2.solar[0].how, 'need'); ok('no STC line: no money c
 const R3 = E.run(Object.assign({}, data, { stc: {} }), Object.assign({}, set, { stc: { '9001': { amt: 1800 } } }), '2026-11-20');
 ok('typed in STC figure used', R3.tx.filter(t => t.kind == 'stc')[0].amt, 1800); ok('typed in STC figure tagged as a setting', R3.tx.filter(t => t.kind == 'stc')[0].tag, 'set');
 ok('marked no STCs', E.run(Object.assign({}, data, { stc: {} }), Object.assign({}, set, { stc: { '9001': { none: true } } }), '2026-11-20').solar[0].how, 'none');
+
+// ---- only what moves inside the period is counted, and money for earlier work is marked ----
+ok('old draft from before the start is not in the draft count', R.drafts, { n: 1, inc: 770 });
+ok('June invoice paid in July is marked before start', find('inv', t => /INV0/.test(t.label))[0].pre, true);
+ok('July invoice is not marked', find('inv', t => /INV2/.test(t.label))[0].pre, false);
+ok('June supplier account is marked before start', find('sup', t => /CNW/.test(t.label))[0].pre, true);
+ok('July supplier account is not marked', find('sup', t => /Tradezone/.test(t.label))[0].pre, false);
+ok('the 1 July pay is for a week before the start', find('wage')[0].pre, true);
+ok('the 8 July pay is not', find('wage')[1].pre, false);
+ok('June held tax is marked before start', find('payg', t => /June/.test(t.label))[0].pre, true);
+ok('GST for April to June is marked before start', R.tx.filter(t => t.kind == 'gst' && t.d == '2026-07-28').every(t => t.pre), true);
+ok('GST for July to September is not', R.tx.filter(t => t.kind == 'gst' && t.d == '2026-10-28').some(t => t.pre), false);
+ok('estimates are never marked before start', R.tx.filter(t => t.kind == 'est').some(t => t.pre), false);
+// in: the June invoice (330) plus the GST back on April to June's estimates
+ok('the before start money in is added up', E.tally(R).preIn, E.r2(R.tx.filter(t => t.pre && t.amt > 0).reduce((s, t) => s + t.amt, 0)));
+ok('the June invoice is in it', E.tally(R).preIn >= 330 && E.tally(R).preOut > 0, true);
+ok('before start money is part of the in and out, not on top', E.tally(R).preIn <= E.tally(R).in && E.tally(R).preOut <= E.tally(R).out, true);
+ok('invoices paid inside the period are counted for the note', R.counts.inv, R.tx.filter(t => t.kind == 'inv' && !t.proj).length);
+ok('timesheet lines counted are from the start on', R.counts.times, 2);
+// a period with an end date: 1 July to 30 September, run on 20 November
+const late = Object.assign({}, data, { invoices: data.invoices.concat([{ n: 'INV9', d: '2026-10-10', st: 'Approved', ex: 9000, inc: 9900, cl: 'Mrs Smith', jn: '9009', tn: 'October solar job' }]), times: data.times.concat([T('Lee Other', '2026-10-12', '07:00', '15:00', '9009')]) });
+const setE = Object.assign({}, set, { end: '2026-09-30' });
+const RE = E.run(late, setE, '2026-11-20'), RE0 = E.run(data, setE, '2026-11-20');
+ok('end date: nothing after it', RE.tx.every(t => t.d <= '2026-09-30'), true);
+ok('end date: nothing before the start', RE.tx.every(t => t.d >= '2026-07-01'), true);
+ok('end date: no projection', RE.tx.some(t => t.proj), false);
+ok('end date: the as at day is the end date', [RE.today, RE.ended], ['2026-09-30', true]);
+ok('end date: an invoice after it is not in', RE.tx.some(t => /INV9/.test(t.label)), false);
+ok('end date: money after it adds nothing to the ATO bills', RE.atoLater, RE0.atoLater);
+ok('end date: the quarter\'s GST is still to come', RE.tx.some(t => t.kind == 'gst' && t.d == '2026-10-28'), false);
+ok('end date: pays stop at it', RE.wageWeeks.every(w => w.pay <= '2026-09-30'), true);
+ok('end date: hours after it are not listed', RE.others, { 'Lee Other': 4 });
+ok('end date: solar jobs after it are not listed', RE.solar.map(s => s.jn), ['9001']);
+ok('end date: the balance is the lines added up', E.tally(RE).now, E.r2(RE.tx.reduce((a, t) => a + t.amt, 0)));
+ok('an end date after today is ignored', E.run(data, Object.assign({}, set, { end: '2027-06-30' }), '2026-11-20').ended, false);
 
 // ---- the balance ----
 const A = E.tally(R), Dn = E.tally(R, t => t.tag == 'data');
