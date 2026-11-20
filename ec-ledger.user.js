@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EC Ledger
 // @namespace    ec
-// @version      0.4
+// @version      0.5
 // @description  A pretend bank account on the AroFlo home page: invoices in, supplier accounts, pays, tax and estimated running costs out, replayed from the start date every run. Read only on AroFlo, Tradezone and CNW. Names and pay figures stay on this device.
 // @match        https://office.aroflo.com/ims/Site/Home/*
 // @grant        GM_xmlhttpRequest
@@ -22,7 +22,7 @@
   // Live updates (23/10): Tampermonkey only checks for a new version every few hours. This checks the repo's latest commit every
   // 2 min (free when nothing's changed) and keeps the newest code here, so a push runs on the next page load. If the new code needs
   // a permission this install hasn't got, or this browser won't run it, the built in copy below runs like before.
-  const __ecName = "ec-ledger", __ecVer = "0.4", __ecHave = new Set(["// @connect api.github.com", "// @connect raw.githubusercontent.com", "// @connect shop.cnw.com.au", "// @connect www.tradezone.com.au", "// @grant GM_getValue", "// @grant GM_setClipboard", "// @grant GM_setValue", "// @grant GM_xmlhttpRequest", "// @match https://office.aroflo.com/ims/Site/Home/*", "// @run-at document-idle"]);
+  const __ecName = "ec-ledger", __ecVer = "0.5", __ecHave = new Set(["// @connect api.github.com", "// @connect raw.githubusercontent.com", "// @connect shop.cnw.com.au", "// @connect www.tradezone.com.au", "// @grant GM_getValue", "// @grant GM_setClipboard", "// @grant GM_setValue", "// @grant GM_xmlhttpRequest", "// @match https://office.aroflo.com/ims/Site/Home/*", "// @run-at document-idle"]);
   const __ecInfo0 = typeof GM_info != 'undefined' ? GM_info : null;
   const __ecSay = m => { try { console.log('[live update] ' + __ecName + ': ' + m); } catch (e) {} };
   const __ecCmp = (a, b) => { const x = String(a).split('.').map(Number), y = String(b).split('.').map(Number); for (let i = 0; i < Math.max(x.length, y.length); i++) { const d = (x[i] || 0) - (y[i] || 0); if (d) return d; } return 0; };
@@ -73,7 +73,7 @@
   }
   if (window.top === window.self) { __ecCheck(); setInterval(__ecCheck, 2 * 60e3 + 5000); }
   if (__ecLive()) return;
-  // ---------- the built in copy (src/ec-ledger.js at 0.4) ----------
+  // ---------- the built in copy (src/ec-ledger.js at 0.5) ----------
 
 (function () {
   'use strict';
@@ -465,7 +465,8 @@
   // ---------- what's kept on this device: the settings (names and pay figures included) and the last read ----------
   const SETKEY = 'ecLedgerSet', DATAKEY = 'ecLedgerData';
   let set = Object.assign(E.DEFAULTS(todayIso()), GM_getValue(SETKEY, null) || {}), data = GM_getValue(DATAKEY, null), res = null;
-  let tab = 'over', hard = false, ahead = false, more = 150, busy = false, box, note = '';
+  let tab = 'over', hard = false, ahead = false, more = 150, busy = false, box, note = '', loaded = '';
+  const VER = (() => { try { return GM_info.script.version || ''; } catch (e) { return ''; } })(); // shown in the title, so it's clear which copy is installed
   const saveSet = () => { try { GM_setValue(SETKEY, set); } catch (e) {} };
   const calc = () => { res = data ? E.run(data, set, todayIso()) : null; };
   const encode = o => btoa(unescape(encodeURIComponent(JSON.stringify(o))));
@@ -616,12 +617,12 @@ ${e.kind == 'fuel' ? inp('estimates.' + i + '.veh', e.veh, 's', 'number') + '<sp
 <div class="f"><span>Opening balance</span>${inp('open', set.open, 's', 'number')}<span>what was in the bank on the start date, 0 if you don't know</span></div>
 <div class="f"><span>Invoices paid after</span>${inp('terms', set.terms, 's', 'number')}<span>days, unless a client below says different</span></div>
 <div class="f"><span>Super</span>${inp('superRate', set.superRate, 's', 'number')}<span>%</span><span>STC money lands</span>${inp('stcDelay', set.stcDelay, 's', 'number')}<span>days after the job</span><span>Look ahead</span>${inp('horizon', set.horizon, 's', 'number')}<span>days</span></div></div>
-<div class="card"><h4>Pay list</h4><p class="hint">Names and pay figures stay in this device's Tampermonkey. They are never in the script or sent anywhere.</p>${people}<div class="f"><button class="btn" data-act="add" data-list="people">Add a person</button>${names.length ? '' : '<span>Hit Refresh first so the names off the timesheets show here.</span>'}</div></div>
+<div class="card paylist"><h4>Pay list</h4>${loaded ? `<div class="warn" style="background:#ecfdf5;border-color:#a7f3d0">${esc(loaded)}</div>` : ''}<p class="hint">Names and pay figures stay in this device's Tampermonkey. They are never in the script or sent anywhere.</p>${people}<div class="f"><button class="btn" data-act="add" data-list="people">Add a person</button>${names.length ? '' : '<span>Hit Refresh first so the names off the timesheets show here.</span>'}</div></div>
 <div class="card"><h4>Clients on different terms</h4>${terms}<div class="f"><button class="btn" data-act="add" data-list="clientTerms">Add a client</button></div></div>
 <div class="card"><h4>Estimated running costs</h4><p class="hint">Guesses for what can't be read from here. Untick one to leave it out. Amounts are what leaves the bank.</p>${est}<div class="f"><button class="btn" data-act="add" data-list="estimates">Add an estimate</button></div></div>
 <div class="card"><h4>Extra days off</h4><p class="hint">Queensland public holidays are built in. Add show day or anything local, as dates like 2026-08-12, with commas between.</p><div class="f"><input class="g" type="text" data-hols="1" value="${esc((set.extraHols || []).join(', '))}"></div></div>
 ${res ? `<div class="card"><h4>Solar jobs</h4><p class="hint">A job with an STC line in AroFlo uses it. Type a figure to use yours instead (or where there's no line), or tick No STCs. It's remembered for every refresh. Jobs still needing a figure are on top, biggest first.</p>${solar || 'No solar jobs found.'}</div>` : ''}
-<div class="card"><h4>Move the settings to another device</h4><p class="hint">Copy the code here, then paste it in the same box on the other device and tap Load. It holds the pay list, so treat it like the figures themselves. A full code replaces the settings on that device. An add-on code only adds what's in it.</p><textarea class="code" placeholder="Paste a settings code here to load it"></textarea><div class="f"><button class="btn" data-act="export">Copy my settings code</button><button class="btn g2" data-act="import">Load the code in the box</button></div></div>`;
+<div class="card"><h4>Move the settings to another device</h4><p class="hint">Copy the code here, then paste it in the same box on the other device and tap Load. It holds the pay list, so treat it like the figures themselves. A full code replaces the settings on that device. An add-on code only adds what's in it.</p><textarea class="code" placeholder="Paste a settings code here to load it"></textarea><div class="f"><button class="btn" data-act="export">Copy my settings code</button><button class="btn g2" data-act="import">Load the code in the box</button></div><div class="warn lerr" style="display:none"></div></div>`;
   }
 
   function draw() {
@@ -654,14 +655,14 @@ ${res ? `<div class="card"><h4>Solar jobs</h4><p class="hint">A job with an STC 
     const st = document.createElement('style'); st.textContent = css; document.head.appendChild(st);
     const b = document.createElement('button'); b.id = 'ec-lg-btn'; b.textContent = 'Ledger'; document.body.appendChild(b);
     box = document.createElement('div'); box.id = 'ec-lg';
-    box.innerHTML = `<div class="hd"><b>EC Ledger</b><button class="go">Refresh</button><button class="x" title="Close">&times;</button></div>
+    box.innerHTML = `<div class="hd"><b>EC Ledger${VER ? ' <small style="font-weight:400;opacity:.7">' + esc(VER) + '</small>' : ''}</b><button class="go">Refresh</button><button class="x" title="Close">&times;</button></div>
 <div class="tabs"><button data-tab="over">Overview</button><button data-tab="st">Statement</button><button data-tab="pay">Pays</button><button data-tab="set">Settings</button></div>
 <div class="msg"></div><div class="bd"></div>`;
     document.body.appendChild(box);
     b.onclick = () => { const open = box.style.display != 'flex'; box.style.display = open ? 'flex' : 'none'; if (open) { calc(); draw(); } };
     box.querySelector('.x').onclick = () => { box.style.display = 'none'; };
     box.querySelector('.go').onclick = refresh;
-    box.querySelector('.tabs').onclick = e => { const t = e.target.closest('button'); if (t) { tab = t.dataset.tab; more = 150; draw(); } };
+    box.querySelector('.tabs').onclick = e => { const t = e.target.closest('button'); if (t) { tab = t.dataset.tab; more = 150; loaded = ''; draw(); } };
     box.querySelector('.bd').addEventListener('click', async e => {
       const t = e.target.closest('[data-act]'); if (!t || t.tagName == 'INPUT') return;
       const a = t.dataset.act;
@@ -683,11 +684,18 @@ ${res ? `<div class="card"><h4>Solar jobs</h4><p class="hint">A job with an STC 
             merge('clientTerms', 'match', x => x && typeof x.match == 'string' && x.match);
             merge('estimates', 'name', x => x && typeof x.name == 'string' && x.name && /^(fixed|fuel|pct)$/.test(x.kind));
             if (!done.length) throw new Error('nothing in it to add');
-            saveSet(); calc(); say('Added: ' + done.join(', ') + '. Everything else is as it was.'); draw(); return;
+            saveSet(); calc(); loaded = 'Added from the code: ' + done.join(', ') + '. Everything else is as it was.'; say(loaded); draw();
+            const pl = box.querySelector('.paylist'); if (pl) pl.scrollIntoView({ block: 'start' }); // up to the pay list, so what went in is on screen
+            return;
           }
           if (!s || typeof s != 'object' || !Array.isArray(s.people) || !Array.isArray(s.estimates)) throw new Error('not a settings code');
-          set = Object.assign(E.DEFAULTS(todayIso()), s); saveSet(); calc(); say('Settings loaded.'); draw();
-        } catch (er) { say('That code didn\'t load (' + er.message + ').'); }
+          set = Object.assign(E.DEFAULTS(todayIso()), s); saveSet(); calc(); loaded = 'Settings loaded from the code.'; say(loaded); draw();
+          const pl = box.querySelector('.paylist'); if (pl) pl.scrollIntoView({ block: 'start' });
+        } catch (er) {
+          // said right under the button as well as up top, so it isn't missed at the bottom of a long page
+          const why = /not a settings code|nothing in it/.test(er.message) ? er.message : 'the code looks cut short or has extra bits in it, copy the whole thing again';
+          const m = 'That code didn\'t load: ' + why + '.'; say(m); const le = box.querySelector('.lerr'); if (le) { le.textContent = m; le.style.display = 'block'; }
+        }
       }
     });
     box.querySelector('.bd').addEventListener('change', e => {
