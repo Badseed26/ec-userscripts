@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EC Inbox Filer
 // @namespace    ec
-// @version      0.9.92
+// @version      0.9.93
 // @description  Watches the shared Outlook for builder POs, revised POs and Energex safety advice, reads them with Claude Sonnet and files them onto the right AroFlo task. Unmatched ones, dates to book and anything odd go to follow ups. Runs only in the two filer tabs (Outlook and AroFlo opened with #ec-filer).
 // @match        https://outlook.cloud.microsoft/*
 // @match        https://outlook.office.com/*
@@ -1095,7 +1095,7 @@ if (ON_AF) {
     let zone = ed.container ? ed.container.$ : b, btn = [], seen = [];
     for (let i = 0; i < 10 && zone && zone != document.body; i++, zone = zone.parentElement) {
       const c = [...zone.querySelectorAll(ctl)].filter(x => x.id != 'btnAddNote' && x.id != 'btnAddNoteHTML' && !(main && main.contains(x)) && !(ed.container && ed.container.$.contains(x)));
-      seen = c.map(lbl).filter(Boolean); const sv = c.filter(x => /\bsave\b/i.test(lbl(x)));
+      seen = c.map(lbl).filter(Boolean); const sv = c.filter(x => /\bsave\b/i.test(lbl(x)) && !/save task|signature|quote|header/i.test(lbl(x))); // never Save Task
       if (sv.length) { const exact = sv.filter(x => /save note/i.test(lbl(x))); btn = exact.length ? exact : sv; break; } }
     const f = zone && zone.querySelector('select[name*="NoteFilter"]'), st = zone && zone.querySelector('input[name*="NoteSticky"]');
     if ((f && f.options[f.selectedIndex].text != 'Internal Only') || (st && st.checked)) { ed.setData(old); ed.resetDirty(); return opDone(op, { noteErr: 'the note isn\'t Internal Only (or it\'s sticky), nothing changed' }); }
