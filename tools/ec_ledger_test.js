@@ -67,6 +67,7 @@ const data = {
     { n: 'INV2', d: '2026-07-10', st: 'Approved', ex: 2000, inc: 2200, cl: 'Mrs Smith', jn: '9002', tn: '2 Test Rd switchboard' },
     { n: 'INV3', d: '2026-07-10', st: 'Void', ex: 500, inc: 550, cl: 'Mrs Smith', jn: '9003', tn: 'void one' },
     { n: 'INV0', d: '2026-06-24', st: 'Approved', ex: 300, inc: 330, cl: 'Mrs Smith', jn: '9000', tn: 'June job' },
+    { n: 'INV4', d: '2026-07-15', st: 'IN_PROGRESS', ex: 700, inc: 770, cl: 'Mrs Smith', jn: '9004', tn: 'still being written' },
   ],
   pos: [
     { no: '4401', d: '2026-07-08', sup: 'Hardware Store', ex: 100, jn: '9002' },
@@ -86,6 +87,8 @@ ok('builder on 30 days lands Wed 5 Aug', find('inv', t => /INV1/.test(t.label))[
 ok('everyone else on 14 days lands Fri 24 Jul', find('inv', t => /INV2/.test(t.label))[0].d, '2026-07-24');
 ok('invoice lands inc GST', find('inv', t => /INV2/.test(t.label))[0].amt, 2200);
 ok('void invoice left out', find('inv', t => /INV3/.test(t.label)).length, 0);
+ok('draft invoice left out', find('inv', t => /INV4/.test(t.label)).length, 0);
+ok('draft invoices are counted up for the note', R.drafts, { n: 1, inc: 770 });
 ok('June invoice landing in July counts', find('inv', t => /INV0/.test(t.label))[0].d, '2026-07-08');
 ok('STC money 2 days after the last day on the job', find('stc')[0].d, '2026-07-04');
 ok('STC amount off the AroFlo line', find('stc')[0].amt, 1500);

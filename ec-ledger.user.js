@@ -106,6 +106,7 @@
     const dShort = s => +s.slice(8) + '/' + +s.slice(5, 7);
     const r2 = n => Math.round(n * 100) / 100;
     const dead = st => /void|cancel|delet/i.test(st || '');
+    const draft = st => /in_progress|pending/i.test(st || ''); // an invoice still being written or waiting on approval hasn't gone out
 
     // Queensland wide public holidays. Show day and anything local goes in Settings (extra days off).
     const HOLS = ['2026-01-01', '2026-01-26', '2026-04-03', '2026-04-04', '2026-04-05', '2026-04-06', '2026-04-25', '2026-05-04', '2026-10-05', '2026-12-25', '2026-12-26', '2026-12-28',
@@ -190,15 +191,16 @@
 
       // ---- money in: invoices, on the builder's terms, landing on a weekday ----
       const termFor = cl => { const c = (S.clientTerms || []).find(t => t && t.match && String(cl || '').toLowerCase().includes(String(t.match).toLowerCase())); return c ? +c.days || 0 : +S.terms || 0; };
-      const jobs = {}, status = {};
+      const jobs = {}, status = {}, drafts = { n: 0, inc: 0 };
       (data.invoices || []).forEach(i => {
         status[i.st || '?'] = (status[i.st || '?'] || 0) + 1;
         if (dead(i.st)) return;
         const ex = +i.ex || 0, inc = +i.inc || ex * 1.1; if (!inc) return;
+        if (draft(i.st)) { drafts.n++; drafts.inc = r2(drafts.inc + inc); return; }
         const d = nextBiz(add(i.d, termFor(i.cl)));
         push(d, inc, 'data', 'inv', 'Invoice ' + i.n + (i.cl ? ', ' + i.cl : ''), { ref: i.jn || '', sub: i.tn || '' });
         addGst('data', d, inc - (ex || inc / 1.1));
-        if (i.jn) { const j = jobs[i.jn] = jobs[i.jn] || { jn: i.jn, name: i.tn || '', text: '', first: i.d, last: i.d }; j.text += ' ' + (i.tn || '') + ' ' + (i.desc || ''); if (i.d < j.first) j.first = i.d; if (i.d > j.last) j.last = i.d; }
+        if (i.jn) { const j = jobs[i.jn] = jobs[i.jn] || { jn: i.jn, name: i.tn || '', text: '', first: i.d, last: i.d, inc: 0 }; j.inc = r2(j.inc + inc); j.text += ' ' + (i.tn || '') + ' ' + (i.desc || ''); if (i.d < j.first) j.first = i.d; if (i.d > j.last) j.last = i.d; }
       });
 
       // ---- STC money: 2 days after the last day on the job. From AroFlo's STC line, or the figure typed in for that job ----
@@ -211,7 +213,7 @@
         const days = (lastOn[j.jn] || []).filter(d => d <= add(j.last, 3)).sort(), jobDay = days.length ? days[days.length - 1] : j.first;
         const how = mine ? (mine.none ? 'none' : 'set') : line ? 'line' : 'need';
         const amt = how == 'set' ? Math.abs(+mine.amt || 0) : how == 'line' ? Math.abs(+line.amt || 0) : 0, d = add(jobDay, +S.stcDelay || 0);
-        solar.push({ jn: j.jn, name: j.name, how, amt, d, jobDay });
+        solar.push({ jn: j.jn, name: j.name, how, amt, d, jobDay, inc: j.inc });
         push(d, amt, how == 'set' ? 'set' : 'data', 'stc', 'STCs, job ' + j.jn, { ref: j.jn, sub: j.name });
       });
 
@@ -267,7 +269,7 @@
       // hours logged by anyone not on the pay list, so they can be added if wanted
       const names = new Set(people.map(p => p.name)), others = {};
       Object.keys(H).forEach(n => { if (names.has(n)) return; const h = Object.keys(H[n]).filter(d => d >= S.start).reduce((a, d) => a + H[n][d], 0); if (h > 0) others[n] = r2(h); });
-      return { set: S, today, end, from, tx: out, wageWeeks: wageWeeks.filter(w => w.pay >= S.start && w.pay <= end), solar: solar.sort((a, b) => a.d < b.d ? 1 : -1), others, atoLater, status };
+      return { set: S, today, end, from, tx: out, wageWeeks: wageWeeks.filter(w => w.pay >= S.start && w.pay <= end), solar: solar.sort((a, b) => (a.how == 'need') != (b.how == 'need') ? (a.how == 'need' ? -1 : 1) : a.how == 'need' ? b.inc - a.inc : a.d < b.d ? 1 : -1), others, atoLater, status, drafts };
     }
 
     // The running balance and headline numbers for a set of lines: all of them, or only the ones a filter keeps.
@@ -543,6 +545,7 @@
     if (shortW) W.push(shortW + ' pay week' + (shortW > 1 ? 's' : '') + ' had less than the guaranteed hours logged, so those were paid at the guarantee (see Pays).');
     const oth = Object.keys(res.others);
     if (oth.length) W.push('Hours logged by people not on the pay list (not paid here): ' + oth.map(n => esc(n) + ' ' + Math.round(res.others[n]) + ' h').join(', ') + '.');
+    if (res.drafts.n) W.push(res.drafts.n + ' invoice' + (res.drafts.n > 1 ? 's' : '') + ' still in progress or waiting on approval in AroFlo (' + $0(res.drafts.inc) + ') ' + (res.drafts.n > 1 ? 'are' : 'is') + ' not counted until approved.');
     (data.warn || []).forEach(w => W.push(esc(w)));
     if (data.start != set.start) W.push('The start date has changed since the last read. Hit Refresh to read again.');
     const kinds = Object.keys(KIND).filter(k => T.kinds[k]).map(k => `<div class="row"><div class="t">${KIND[k]}</div><div class="a">${amt(T.kinds[k], $0)}</div></div>`).join('');
@@ -596,7 +599,7 @@ ${e.kind == 'fuel' ? inp('estimates.' + i + '.veh', e.veh, 's', 'number') + '<sp
     : e.kind == 'pct' ? inp('estimates.' + i + '.pct', e.pct, 's', 'number') + '<span>%</span>'
     : inp('estimates.' + i + '.amt', e.amt, 's', 'number') + sel('estimates.' + i + '.per', e.per, [['week', 'a week'], ['month', 'a month'], ['year', 'a year, spread by month']], 'm')}
 <label><span>GST in it</span> ${chk('estimates.' + i + '.gst', e.gst)}</label><button class="btn rm" data-act="rm" data-list="estimates" data-i="${i}" title="Remove">&times;</button></div>`).join('');
-    const solar = res ? res.solar.map(s => { const m = (set.stc || {})[s.jn] || {}; return `<div class="f"><div class="g"><b>${esc(s.jn)}</b> ${esc(s.name).slice(0, 60)}<br><span>${s.how == 'line' ? 'AroFlo STC line: ' + $2(s.amt) : s.how == 'set' ? 'Your figure' : s.how == 'none' ? 'Marked no STCs' : 'No STC line in AroFlo, needs a figure'}, job day ${dNice(s.jobDay)}</span></div>
+    const solar = res ? res.solar.map(s => { const m = (set.stc || {})[s.jn] || {}; return `<div class="f"><div class="g"><b>${esc(s.jn)}</b> ${esc(s.name).slice(0, 60)}<br><span>${s.how == 'line' ? 'AroFlo STC line: ' + $2(s.amt) : s.how == 'set' ? 'Your figure' : s.how == 'none' ? 'Marked no STCs' : 'No STC line in AroFlo, needs a figure'}, job day ${dNice(s.jobDay)}, invoiced ${$0(s.inc)}</span></div>
 <input class="s" type="number" step="any" inputmode="decimal" data-stc="${esc(s.jn)}" value="${m.amt == null ? '' : esc(m.amt)}" placeholder="$"><label><span>No STCs</span> <input type="checkbox" data-stcnone="${esc(s.jn)}"${m.none ? ' checked' : ''}></label></div>`; }).join('') : '';
     return `<div class="card"><h4>The basics</h4>
 <div class="f"><span>Start date</span>${inp('start', set.start, 'm', 'date')}<span>Opening balance</span>${inp('open', set.open, 's', 'number')}</div>
@@ -606,7 +609,7 @@ ${e.kind == 'fuel' ? inp('estimates.' + i + '.veh', e.veh, 's', 'number') + '<sp
 <div class="card"><h4>Clients on different terms</h4>${terms}<div class="f"><button class="btn" data-act="add" data-list="clientTerms">Add a client</button></div></div>
 <div class="card"><h4>Estimated running costs</h4><p class="hint">Guesses for what can't be read from here. Untick one to leave it out. Amounts are what leaves the bank.</p>${est}<div class="f"><button class="btn" data-act="add" data-list="estimates">Add an estimate</button></div></div>
 <div class="card"><h4>Extra days off</h4><p class="hint">Queensland public holidays are built in. Add show day or anything local, as dates like 2026-08-12, with commas between.</p><div class="f"><input class="g" type="text" data-hols="1" value="${esc((set.extraHols || []).join(', '))}"></div></div>
-${res ? `<div class="card"><h4>Solar jobs</h4><p class="hint">A job with an STC line in AroFlo uses it. Type a figure to use yours instead (or where there's no line), or tick No STCs. It's remembered for every refresh.</p>${solar || 'No solar jobs found.'}</div>` : ''}
+${res ? `<div class="card"><h4>Solar jobs</h4><p class="hint">A job with an STC line in AroFlo uses it. Type a figure to use yours instead (or where there's no line), or tick No STCs. It's remembered for every refresh. Jobs still needing a figure are on top, biggest first.</p>${solar || 'No solar jobs found.'}</div>` : ''}
 <div class="card"><h4>Move the settings to another device</h4><p class="hint">Copy the code here, then paste it in the same box on the other device and tap Load. It holds the pay list, so treat it like the figures themselves.</p><textarea class="code" placeholder="Paste a settings code here to load it"></textarea><div class="f"><button class="btn" data-act="export">Copy my settings code</button><button class="btn g2" data-act="import">Load the code in the box</button></div></div>`;
   }
 
