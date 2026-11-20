@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EC Ledger
 // @namespace    ec
-// @version      0.9
+// @version      0.10
 // @description  A pretend bank account on the AroFlo home page: invoices in, supplier accounts, pays, tax and estimated running costs out, replayed from the start date every run. Read only on AroFlo, Tradezone and CNW. Names and pay figures stay on this device.
 // @match        https://office.aroflo.com/ims/Site/Home/*
 // @grant        GM_xmlhttpRequest
@@ -22,7 +22,7 @@
   // Live updates (23/10): Tampermonkey only checks for a new version every few hours. This checks the repo's latest commit every
   // 2 min (free when nothing's changed) and keeps the newest code here, so a push runs on the next page load. If the new code needs
   // a permission this install hasn't got, or this browser won't run it, the built in copy below runs like before.
-  const __ecName = "ec-ledger", __ecVer = "0.9", __ecHave = new Set(["// @connect api.github.com", "// @connect raw.githubusercontent.com", "// @connect shop.cnw.com.au", "// @connect www.tradezone.com.au", "// @grant GM_getValue", "// @grant GM_setClipboard", "// @grant GM_setValue", "// @grant GM_xmlhttpRequest", "// @match https://office.aroflo.com/ims/Site/Home/*", "// @run-at document-idle"]);
+  const __ecName = "ec-ledger", __ecVer = "0.10", __ecHave = new Set(["// @connect api.github.com", "// @connect raw.githubusercontent.com", "// @connect shop.cnw.com.au", "// @connect www.tradezone.com.au", "// @grant GM_getValue", "// @grant GM_setClipboard", "// @grant GM_setValue", "// @grant GM_xmlhttpRequest", "// @match https://office.aroflo.com/ims/Site/Home/*", "// @run-at document-idle"]);
   const __ecInfo0 = typeof GM_info != 'undefined' ? GM_info : null;
   const __ecSay = m => { try { console.log('[live update] ' + __ecName + ': ' + m); } catch (e) {} };
   const __ecCmp = (a, b) => { const x = String(a).split('.').map(Number), y = String(b).split('.').map(Number); for (let i = 0; i < Math.max(x.length, y.length); i++) { const d = (x[i] || 0) - (y[i] || 0); if (d) return d; } return 0; };
@@ -73,7 +73,7 @@
   }
   if (window.top === window.self) { __ecCheck(); setInterval(__ecCheck, 2 * 60e3 + 5000); }
   if (__ecLive()) return;
-  // ---------- the built in copy (src/ec-ledger.js at 0.9) ----------
+  // ---------- the built in copy (src/ec-ledger.js at 0.10) ----------
 
 (function () {
   'use strict';
@@ -728,6 +728,11 @@ ${res ? `<div class="card"><h4>Solar jobs</h4><p class="hint">Only jobs with no 
             merge('people', 'name', x => x && typeof x.name == 'string' && x.name && /^(hourly|salary)$/.test(x.type));
             merge('clientTerms', 'match', x => x && typeof x.match == 'string' && x.match);
             merge('estimates', 'name', x => x && typeof x.name == 'string' && x.name && /^(fixed|fuel|pct)$/.test(x.kind));
+            if (s.add.set && typeof s.add.set == 'object') { // the plain number settings: days to pay, opening balance, super, STC delay, look ahead
+              const names = { terms: 'days to pay', open: 'opening balance', superRate: 'super', stcDelay: 'STC delay', horizon: 'look ahead' }, got = [];
+              Object.keys(names).forEach(k => { const v = s.add.set[k]; if (v === undefined || v === '' || !isFinite(+v) || +v < 0) return; set[k] = +v; got.push(names[k] + ' ' + (+v)); });
+              if (got.length) done.push(got.join(', '));
+            }
             if (s.add.stc && typeof s.add.stc == 'object') { // STC figures for a batch of jobs: { jobNumber: { amt } or { none: true } }
               let n = 0; set.stc = set.stc || {};
               Object.keys(s.add.stc).forEach(jn => { const v = s.add.stc[jn]; if (!/^\d{3,6}$/.test(jn) || !v || typeof v != 'object') return; const why = typeof v.why == 'string' && v.why ? { why: v.why.slice(0, 120) } : {}; if (v.none === true) set.stc[jn] = Object.assign({ none: true }, why); else if (isFinite(+v.amt) && +v.amt >= 0) set.stc[jn] = Object.assign({ amt: +v.amt }, why); else return; n++; });
