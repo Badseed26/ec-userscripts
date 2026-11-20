@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EC Ledger
 // @namespace    ec
-// @version      0.3
+// @version      0.4
 // @description  A pretend bank account on the AroFlo home page: invoices in, supplier accounts, pays, tax and estimated running costs out, replayed from the start date every run. Read only on AroFlo, Tradezone and CNW. Names and pay figures stay on this device.
 // @match        https://office.aroflo.com/ims/Site/Home/*
 // @grant        GM_xmlhttpRequest
@@ -561,7 +561,7 @@ ${e.kind == 'fuel' ? inp('estimates.' + i + '.veh', e.veh, 's', 'number') + '<sp
 <div class="card"><h4>Estimated running costs</h4><p class="hint">Guesses for what can't be read from here. Untick one to leave it out. Amounts are what leaves the bank.</p>${est}<div class="f"><button class="btn" data-act="add" data-list="estimates">Add an estimate</button></div></div>
 <div class="card"><h4>Extra days off</h4><p class="hint">Queensland public holidays are built in. Add show day or anything local, as dates like 2026-08-12, with commas between.</p><div class="f"><input class="g" type="text" data-hols="1" value="${esc((set.extraHols || []).join(', '))}"></div></div>
 ${res ? `<div class="card"><h4>Solar jobs</h4><p class="hint">A job with an STC line in AroFlo uses it. Type a figure to use yours instead (or where there's no line), or tick No STCs. It's remembered for every refresh. Jobs still needing a figure are on top, biggest first.</p>${solar || 'No solar jobs found.'}</div>` : ''}
-<div class="card"><h4>Move the settings to another device</h4><p class="hint">Copy the code here, then paste it in the same box on the other device and tap Load. It holds the pay list, so treat it like the figures themselves.</p><textarea class="code" placeholder="Paste a settings code here to load it"></textarea><div class="f"><button class="btn" data-act="export">Copy my settings code</button><button class="btn g2" data-act="import">Load the code in the box</button></div></div>`;
+<div class="card"><h4>Move the settings to another device</h4><p class="hint">Copy the code here, then paste it in the same box on the other device and tap Load. It holds the pay list, so treat it like the figures themselves. A full code replaces the settings on that device. An add-on code only adds what's in it.</p><textarea class="code" placeholder="Paste a settings code here to load it"></textarea><div class="f"><button class="btn" data-act="export">Copy my settings code</button><button class="btn g2" data-act="import">Load the code in the box</button></div></div>`;
   }
 
   function draw() {
@@ -614,8 +614,20 @@ ${res ? `<div class="card"><h4>Solar jobs</h4><p class="hint">A job with an STC 
         ta.focus(); ta.select(); say(ok ? 'Settings code copied. Paste it into the Ledger on your other device.' : 'Select all in the box and copy it.');
       }
       if (a == 'import') {
-        try { const s = decode(box.querySelector('.code').value); if (!s || typeof s != 'object' || !Array.isArray(s.people) || !Array.isArray(s.estimates)) throw new Error('not a settings code'); set = Object.assign(E.DEFAULTS(todayIso()), s); saveSet(); calc(); say('Settings loaded.'); draw(); }
-        catch (er) { say('That code didn\'t load (' + er.message + ').'); }
+        try {
+          const s = decode(box.querySelector('.code').value);
+          if (s && typeof s == 'object' && s.add && typeof s.add == 'object') {
+            // an add-on code: only what's in it goes in, on top of what's here. Someone already on a list (same name) is updated, not doubled.
+            const done = [], merge = (list, key, ok) => { if (!Array.isArray(s.add[list])) return; let n = 0; set[list] = set[list] || []; s.add[list].filter(ok).forEach(x => { const i = set[list].findIndex(y => y && y[key] == x[key]); if (i >= 0) Object.assign(set[list][i], x); else set[list].push(x); n++; }); if (n) done.push(n + ' on the ' + { people: 'pay list', clientTerms: 'client terms', estimates: 'estimates' }[list]); };
+            merge('people', 'name', x => x && typeof x.name == 'string' && x.name && /^(hourly|salary)$/.test(x.type));
+            merge('clientTerms', 'match', x => x && typeof x.match == 'string' && x.match);
+            merge('estimates', 'name', x => x && typeof x.name == 'string' && x.name && /^(fixed|fuel|pct)$/.test(x.kind));
+            if (!done.length) throw new Error('nothing in it to add');
+            saveSet(); calc(); say('Added: ' + done.join(', ') + '. Everything else is as it was.'); draw(); return;
+          }
+          if (!s || typeof s != 'object' || !Array.isArray(s.people) || !Array.isArray(s.estimates)) throw new Error('not a settings code');
+          set = Object.assign(E.DEFAULTS(todayIso()), s); saveSet(); calc(); say('Settings loaded.'); draw();
+        } catch (er) { say('That code didn\'t load (' + er.message + ').'); }
       }
     });
     box.querySelector('.bd').addEventListener('change', e => {
