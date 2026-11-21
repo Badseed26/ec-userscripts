@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EC Ledger
 // @namespace    ec
-// @version      0.12
+// @version      0.13
 // @description  A pretend bank account on the AroFlo home page: invoices in, supplier accounts, pays, tax and estimated running costs out, replayed from the start date every run. Read only on AroFlo, Tradezone and CNW. Names and pay figures stay on this device.
 // @match        https://office.aroflo.com/ims/Site/Home/*
 // @grant        GM_xmlhttpRequest
@@ -62,6 +62,10 @@
     const SCALE2_OLD = [[361, 0, 0], [500, 0.16, 57.8462], [625, 0.26, 107.8462], [721, 0.18, 57.8462], [865, 0.189, 64.3365], [1282, 0.3227, 180.0385], [2596, 0.32, 176.5769], [3653, 0.39, 358.3077], [Infinity, 0.47, 650.6154]];
     const withhold = (gross, payDay) => { const x = Math.floor(gross) + 0.99, row = (payDay && payDay < '2026-07-01' ? SCALE2_OLD : SCALE2).find(r => x < r[0]); return Math.max(0, Math.round(row[1] * x - row[2])); };
 
+    // AroFlo's calendar wants a person's number, the users list only gives their coded id. The number is the id's last
+    // part read as base 32, over 8. '' when it doesn't work out, so nobody is asked for under a made up number.
+    const userNo = id => { const A = '0123456789ABCDEFGHJKMNPQRSTVWXYZ', t = String(id || '').slice(3); let n = 0; if (!t) return ''; for (const ch of t) { const v = A.indexOf(ch); if (v < 0) return ''; n = n * 32 + v; } return n > 0 && n % 8 == 0 ? String(n / 8) : ''; };
+
     // The start of the financial year today sits in, and what a fresh install starts with. The estimates are guesses to edit.
     const fyStart = today => (+today.slice(5, 7) >= 7 ? +today.slice(0, 4) : +today.slice(0, 4) - 1) + '-07-01';
     const DEFAULTS = today => ({
@@ -103,11 +107,12 @@
     // half, with 4 hours the least paid for any weekend or public holiday worked. Travel is in the hours like any other time.
     function payWeek(p, ws, H, hols, superRate) {
       let ord = 0, otEq = 0, cred = 0, logged = 0, wd = 0;
+      const cas = p.type == 'casual'; // a casual is paid the hours logged and nothing else: no guarantee, no public holidays off
       for (let i = 0; i < 7; i++) {
         const d = add(ws, i); if ((p.from && d < p.from) || (p.to && d > p.to)) continue;
         const w = dow(d), we = w == 0 || w == 6, h = (H && H[d]) || 0, ph = hols.has(d);
         logged += h; if (!we) wd++;
-        if (ph) { if (h > 0) otEq += Math.max(h, 4) * 2.5; if (!we) { if (h > 0) cred += 7.6; else ord += 7.6; } }
+        if (ph) { if (h > 0) otEq += Math.max(h, 4) * 2.5; if (!we && !cas) { if (h > 0) cred += 7.6; else ord += 7.6; } }
         else if (w == 6) { if (h > 0) { const x = Math.max(h, 4); otEq += Math.min(x, 2) * 1.5 + Math.max(x - 2, 0) * 2; } }
         else if (w == 0) { if (h > 0) otEq += Math.max(h, 4) * 2; }
         else { ord += Math.min(h, 8); const ot = Math.max(h - 8, 0); otEq += Math.min(ot, 2) * 1.5 + Math.max(ot - 2, 0) * 2; }
@@ -117,7 +122,7 @@
       let base;
       if (p.type == 'salary') { out.gross = base = r2((+p.weekly || 0) * wd / 5); }
       else {
-        const top = Math.max(0, 7.6 * wd - ord - cred), rate = +p.rate || 0;
+        const top = cas ? 0 : Math.max(0, 7.6 * wd - ord - cred), rate = +p.rate || 0;
         out.ord = r2(ord + top); out.top = r2(top); out.ot = r2(otEq);
         base = rate * (ord + top); out.gross = r2(base + rate * otEq);
       }
@@ -219,7 +224,7 @@
         const pd = add(ws, 7);
         people.forEach(p => {
           const w = payWeek(p, ws, H[p.name], hols, +S.superRate || 0); if (!w.gross) return;
-          w.type = p.type; w.short = p.type != 'salary' && w.logged < w.guar - 0.05 && add(ws, 6) < asAt; wageWeeks.push(w); // short: a finished week with less logged than the guarantee
+          w.type = p.type; w.short = p.type != 'salary' && p.type != 'casual' && w.logged < w.guar - 0.05 && add(ws, 6) < asAt; wageWeeks.push(w); // short: a finished week with less logged than the guarantee
           push(pd, -w.net, 'set', 'wage', 'Pay, ' + p.name, { who: p.name, sub: 'week to ' + dShort(add(ws, 6)), pre: ws < S.start });
           push(pd, -w.sup, 'set', 'super', 'Super, ' + p.name, { who: p.name, pre: ws < S.start });
           const ym = pd.slice(0, 7); held[ym] = (held[ym] || 0) + w.tax; grossM[ym] = (grossM[ym] || 0) + w.gross;
@@ -274,7 +279,7 @@
       return { rows, now: r2(now), in: r2(inn), out: r2(out), preIn: r2(preIn), preOut: r2(preOut), low, end: bal, kinds, weeks: Object.values(weeks).sort((a, b) => a.ws < b.ws ? -1 : 1) };
     }
 
-    return { run, tally, payWeek, withhold, hoursByDay, DEFAULTS, HOLS, add, dow, nextBiz, prevBiz, eom, addMonth, fyStart, mName, dShort, r2 };
+    return { run, tally, payWeek, withhold, hoursByDay, userNo, DEFAULTS, HOLS, add, dow, nextBiz, prevBiz, eom, addMonth, fyStart, mName, dShort, r2 };
   })();
   // ===== ENGINE END =====
 
@@ -377,7 +382,18 @@
       const vw = await af('/ims/Site/Calendar/AJAX/AJAX_JSON_get_calendar_view.cfm?view_id=0'), vs = vw && vw.view && vw.view.settings;
       if (!master || !vs || !vs.settings) throw new Error('calendar settings not found');
       const now = new Date();
-      const js = Object.assign({}, vs.settings, { resources: vs.resources, filters: vs.filters, externalcalendars: vs.externalcalendars, returntype: 'json', showtasktimesheets: 1, showoverheads: 1, curcalyear: now.getFullYear(), curcalmonth: now.getMonth(), curcalday: now.getDate() });
+      // Anyone who has left (archived in AroFlo) isn't on the saved calendar view, so their timesheets wouldn't come back.
+      // They're added for these reads off the users list. Only names are kept.
+      let resources = Array.isArray(vs.resources) ? vs.resources : [];
+      try {
+        const have = new Set(resources.map(r => r && r.resourceid_encoded)), tpl = resources[0];
+        for (let pg = 1; tpl && pg <= 5; pg++) {
+          const u = await af('/cf-api/users?limit=100&includeArchived=1&page=' + pg + '&orgId=' + encodeURIComponent(buId)), items = u.items || [];
+          items.forEach(x => { const no = E.userNo(x.id); if (!x.id || have.has(x.id) || !no) return; have.add(x.id); resources = resources.concat([Object.assign({}, tpl, { resourceid_encoded: x.id, resourceid: 'user_' + no, title: clean((x.givenName || '') + ' ' + (x.familyName || '')), archived: x.isArchived ? 1 : 0, icon: { src: '/ims/images/user.png', class: 'ui-corner-all' } })]); });
+          if (items.length < 100) break;
+        }
+      } catch (e) { out.warn.push('Timesheets: couldn\'t list people who have left, so only the people on the calendar view were read'); }
+      const js = Object.assign({}, vs.settings, { resources, filters: vs.filters, externalcalendars: vs.externalcalendars, returntype: 'json', showtasktimesheets: 1, showoverheads: 1, curcalyear: now.getFullYear(), curcalmonth: now.getMonth(), curcalday: now.getDate() });
       for (let ym = from.slice(0, 7); ym <= today.slice(0, 7); ym = E.addMonth(ym, 1)) {
         say('AroFlo: timesheets, ' + E.mName(ym) + '…');
         const days = []; for (let d = ym + '-01'; d.slice(0, 7) == ym; d = E.add(d, 1)) if (d >= from && d <= today) days.push(Date.parse(d + 'T00:00:00Z') / 1000); // AroFlo's days are UTC midnight
@@ -632,8 +648,8 @@ ${rows.length > more ? `<button class="btn g2" data-act="more">Show more (${rows
     const by = {}; res.wageWeeks.forEach(w => { (by[w.pay] = by[w.pay] || []).push(w); });
     const days = Object.keys(by).filter(d => d <= res.today).sort().reverse().slice(0, 30);
     const oth = Object.keys(res.others);
-    return `<p class="hint">Payday is Wednesday for the Wednesday to Tuesday before. Hourly people are guaranteed 7.6 hours a weekday, travel counts as worked time, and overtime is anything over 8 hours on a weekday plus weekends and public holidays at the award rates. Paydays still to come are counted at the guarantee and sit in the Statement.</p>
-${days.map(pd => `<div class="card"><h4>${dNice(pd)}, week ${E.dShort(E.add(pd, -7))} to ${E.dShort(E.add(pd, -1))}</h4>${by[pd].map(w => `<div class="row"><div class="t">${esc(w.who)}<small>${w.type == 'salary' ? 'salary' : w.logged + ' h logged, ' + w.ord + ' h plain' + (w.ot ? ', overtime worth ' + w.ot + ' h' : '') + (w.top > 0.05 ? ', topped up ' + w.top + ' h' : '') + (w.short ? ', under the guarantee' : '')}</small></div><div class="a">${$2(w.gross)}<small>net ${$2(w.net)}, tax ${$2(w.tax)}, super ${$2(w.sup)}</small></div></div>`).join('')}</div>`).join('')}
+    return `<p class="hint">Payday is Wednesday for the Wednesday to Tuesday before. Hourly people are guaranteed 7.6 hours a weekday (casuals get the hours they logged and no more), travel counts as worked time, and overtime is anything over 8 hours on a weekday plus weekends and public holidays at the award rates. Paydays still to come are counted at the guarantee and sit in the Statement.</p>
+${days.map(pd => `<div class="card"><h4>${dNice(pd)}, week ${E.dShort(E.add(pd, -7))} to ${E.dShort(E.add(pd, -1))}</h4>${by[pd].map(w => `<div class="row"><div class="t">${esc(w.who)}<small>${w.type == 'salary' ? 'salary' : (w.type == 'casual' ? 'casual, ' : '') + w.logged + ' h logged, ' + w.ord + ' h plain' + (w.ot ? ', overtime worth ' + w.ot + ' h' : '') + (w.top > 0.05 ? ', topped up ' + w.top + ' h' : '') + (w.short ? ', under the guarantee' : '')}</small></div><div class="a">${$2(w.gross)}<small>net ${$2(w.net)}, tax ${$2(w.tax)}, super ${$2(w.sup)}</small></div></div>`).join('')}</div>`).join('')}
 ${oth.length ? `<div class="card"><h4>Logging hours but not on the pay list</h4>${oth.map(n => `<div class="row"><div class="t">${esc(n)}</div><div class="a">${Math.round(res.others[n])} h since ${E.dShort(res.set.start)}</div></div>`).join('')}</div>` : ''}`;
   }
 
@@ -643,7 +659,7 @@ ${oth.length ? `<div class="card"><h4>Logging hours but not on the pay list</h4>
   const sel = (k, v, opts, cls) => `<select class="${cls || 'm'}" data-k="${k}">${opts.map(o => `<option value="${esc(o[0])}"${o[0] == v ? ' selected' : ''}>${esc(o[1])}</option>`).join('')}</select>`;
   function vSet() {
     const names = [...new Set(((data && data.times) || []).map(t => t.who))].sort();
-    const people = (set.people || []).map((p, i) => `<div class="f">${sel('people.' + i + '.name', p.name, [['', 'Pick a name']].concat([...new Set(names.concat(p.name ? [p.name] : []))].map(n => [n, n])), 'g')}${sel('people.' + i + '.type', p.type, [['hourly', 'Hourly'], ['salary', 'Salary']], 's')}
+    const people = (set.people || []).map((p, i) => `<div class="f">${sel('people.' + i + '.name', p.name, [['', 'Pick a name']].concat([...new Set(names.concat(p.name ? [p.name] : []))].map(n => [n, n])), 'g')}${sel('people.' + i + '.type', p.type, [['hourly', 'Hourly'], ['casual', 'Casual'], ['salary', 'Salary']], 's')}
 ${p.type == 'salary' ? inp('people.' + i + '.weekly', p.weekly, 's', 'number') + '<span>a week, gross</span>' : inp('people.' + i + '.rate', p.rate, 's', 'number') + '<span>an hour, gross</span>'}
 <span>from</span>${inp('people.' + i + '.from', p.from, 'm', 'date')}<span>to</span>${inp('people.' + i + '.to', p.to, 'm', 'date')}<button class="btn rm" data-act="rm" data-list="people" data-i="${i}" title="Remove">&times;</button></div>`).join('');
     const terms = (set.clientTerms || []).map((t, i) => `<div class="f">${inp('clientTerms.' + i + '.match', t.match, 'g', 'text', 'part of the client name')}${inp('clientTerms.' + i + '.days', t.days, 's', 'number')}<span>days</span><button class="btn rm" data-act="rm" data-list="clientTerms" data-i="${i}" title="Remove">&times;</button></div>`).join('');
@@ -738,7 +754,7 @@ ${res ? `<div class="card"><h4>Purchase orders with no price</h4><p class="hint"
           if (s && typeof s == 'object' && s.add && typeof s.add == 'object') {
             // an add-on code: only what's in it goes in, on top of what's here. Someone already on a list (same name) is updated, not doubled.
             const done = [], merge = (list, key, ok) => { if (!Array.isArray(s.add[list])) return; let n = 0; set[list] = set[list] || []; s.add[list].filter(ok).forEach(x => { const i = set[list].findIndex(y => y && y[key] == x[key]); if (i >= 0) Object.assign(set[list][i], x); else set[list].push(x); n++; }); if (n) done.push(n + ' on the ' + { people: 'pay list', clientTerms: 'client terms', estimates: 'estimates' }[list]); };
-            merge('people', 'name', x => x && typeof x.name == 'string' && x.name && /^(hourly|salary)$/.test(x.type));
+            merge('people', 'name', x => x && typeof x.name == 'string' && x.name && /^(hourly|casual|salary)$/.test(x.type));
             merge('clientTerms', 'match', x => x && typeof x.match == 'string' && x.match);
             merge('estimates', 'name', x => x && typeof x.name == 'string' && x.name && /^(fixed|fuel|pct)$/.test(x.kind));
             if (s.add.set && typeof s.add.set == 'object') { // the plain number settings: days to pay, opening balance, super, STC delay, look ahead

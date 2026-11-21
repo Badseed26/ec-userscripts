@@ -217,6 +217,21 @@ ok('a job figure with no order, job or date has nowhere to land', P2.gear.some(g
 ok('unpriced gear is not hard data', E.tally(P1, t => t.tag == 'data').rows.some(t => t.kind == 'gear'), false);
 ok('balance still adds up with gear in', E.tally(P1).end, E.r2(P1.tx.reduce((a, t) => a + t.amt, 0)));
 
+// ---- casuals, and the number AroFlo's calendar wants for a person ----
+const cz = { name: 'Cas', type: 'casual', rate: 40 }, hz = { name: 'Cas', type: 'hourly', rate: 40 };
+const cw = E.payWeek(cz, '2026-08-05', { '2026-08-05': 6, '2026-08-06': 10 }, hols, 12), hw = E.payWeek(hz, '2026-08-05', { '2026-08-05': 6, '2026-08-06': 10 }, hols, 12);
+ok('casual: paid the hours logged, overtime after 8', cw.gross, 40 * (6 + 8) + 40 * 2 * 1.5);
+ok('casual: no top up to the guarantee', cw.top, 0);
+ok('hourly: same hours are topped up to 38', hw.gross, 40 * 38 + 40 * 2 * 1.5);
+ok('casual: a week with nothing logged pays nothing', E.payWeek(cz, '2026-08-05', {}, hols, 12).gross, 0);
+ok('casual: a public holiday off isn\'t paid', E.payWeek(cz, '2026-09-30', { '2026-10-01': 8 }, hols, 12).gross, 320);
+ok('casual: super on the plain hours', cw.sup, E.r2(40 * 14 * 0.12));
+ok('user number off a coded id', E.userNo('EFS00000010'), '4');
+ok('user number, longer id', E.userNo('EFS000010R0'), String((32768 + 24 * 32) / 8));
+ok('user number: not a whole number means none', E.userNo('EFS00000011'), '');
+ok('user number: odd characters mean none', E.userNo('EFS0000I0L0'), '');
+ok('user number: nothing in, nothing out', E.userNo(''), '');
+
 // ---- the balance ----
 const A = E.tally(R), Dn = E.tally(R, t => t.tag == 'data');
 ok('balance is the lines added up', A.end, E.r2(R.tx.reduce((a, t) => a + t.amt, 0)));
