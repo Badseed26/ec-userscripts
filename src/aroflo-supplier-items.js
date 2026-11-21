@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AroFlo supplier items
 // @namespace    ec
-// @version      0.40
+// @version      0.41
 // @description  Supplier button on AroFlo quotes: search CNW and Tradezone with your own sign ins, pick an item, set the qty and it adds the line (item, part no, qty, cost in Value). Markup left alone, you press Save Quote. Order puts the quote's parts in your CNW or Tradezone cart (never checks out). Reprice, price compare, favourites, recents, stock at nearby branches and price history, synced through Todoist. Build from notes: AI reads the task and your notes into a priced, one-supplier material list for you to check.
 // @match        https://office.aroflo.com/ims/Site/Service/Quotes/*
 // @match        https://shop.cnw.com.au/*
@@ -42,7 +42,8 @@ try {
   const W = typeof unsafeWindow != 'undefined' ? unsafeWindow : window;
   const ORANGE = '#e8731a', GREY = '#4a4541';
   const CNW = 'https://shop.cnw.com.au', TZ = 'https://www.tradezone.com.au';
-  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  // on the TV the app times waits (its page timers crawl with the screen off), anywhere else it's a plain timer
+  const sleep = ms => typeof window.__ecSleep == 'function' ? window.__ecSleep(ms) : new Promise(r => setTimeout(r, ms));
   const clean = s => String(s == null ? '' : s).replace(/\s+/g, ' ').trim();
   const money = n => (n == null || isNaN(n)) ? '' : '$' + Number(n).toFixed(2);
   const esc = s => clean(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
