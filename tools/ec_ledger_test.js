@@ -210,7 +210,7 @@ const P1 = E.run(pd, Object.assign({}, ps, { gear: { po7: { amt: 1000, why: 'ten
 ok('a figure on an order: paid on its day with GST', P1.tx.filter(t => t.kind == 'gear').map(t => [t.d, t.amt, t.tag, t.sub]), [['2025-09-15', -1100, 'set', 'ten panels']]);
 ok('figure set and nothing to pay are sorted, one still waiting', P1.gear.map(g => [g.key, g.how]), [['po9', 'need'], ['po8', 'none'], ['po7', 'set']]);
 const gq = R => R.tx.filter(t => t.kind == 'gst' && t.d == '2025-10-28').reduce((a, t) => a + t.amt, 0);
-ok('the GST on it comes back with the BAS', E.r2(gq(P1) - gq(P0)), 100);
+ok('the GST on it comes back with the BAS', E.r2(gq(P1) - gq(E.run(pd, ps, '2025-12-10'))), 100);
 const P2 = E.run(pd, Object.assign({}, ps, { gear: { 8100: { amt: 2000 }, 8300: { amt: 500, d: '2025-11-03', why: 'off the pallet' }, 8400: { amt: 900 } } }), '2025-12-10');
 ok('a figure for the job covers its orders', P2.gear.map(g => [g.key, g.how, g.d]).filter(g => g[1] != 'need'), [['8300', 'set', '2025-11-03'], ['8100', 'set', '2025-09-15']]);
 ok('job figures: counted once each, on the order\'s day or the day given', P2.tx.filter(t => t.kind == 'gear').map(t => [t.d, t.amt]), [['2025-09-15', -2200], ['2025-11-03', -550]]);
