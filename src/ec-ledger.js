@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EC Ledger
 // @namespace    ec
-// @version      0.13
+// @version      0.14
 // @description  A pretend bank account on the AroFlo home page: invoices in, supplier accounts, pays, tax and estimated running costs out, replayed from the start date every run. Read only on AroFlo, Tradezone and CNW. Names and pay figures stay on this device.
 // @match        https://office.aroflo.com/ims/Site/Home/*
 // @grant        GM_xmlhttpRequest
@@ -72,7 +72,7 @@
       v: 1, start: fyStart(today), end: '', open: 0, terms: 14, clientTerms: [], superRate: 12, stcDelay: 2, horizon: 42,
       people: [], // { name, type: 'hourly' or 'salary', rate (an hour) or weekly (a week), from, to }
       ownSup: 'trade\\s?zone|cnw', // suppliers read off their own account pages, so their AroFlo purchase orders are left out
-      acctSup: 'haymans|polyaire', // other suppliers on a monthly account: a month's purchase orders are paid at the end of the next month
+      acctSup: 'haymans', // other suppliers on a monthly account: a month's purchase orders are paid at the end of the next month
       estimates: [
         { name: 'Ute finance', kind: 'fixed', amt: 1420, per: 'month', gst: false },
         { name: 'Van finance (2 vans)', kind: 'fixed', amt: 2350, per: 'month', gst: false },
@@ -183,7 +183,7 @@
       // those pages don't cover (signed out, or before their first order there), where the purchase orders stand in.
       // Suppliers on a monthly account are paid like one, everyone else on the day. ----
       const rx = (t, d) => { try { return new RegExp(t || d, 'i'); } catch (e) { return new RegExp(d, 'i'); } };
-      const own = rx(S.ownSup, 'trade\\s?zone|cnw'), acct = rx(S.acctSup, 'haymans|polyaire');
+      const own = rx(S.ownSup, 'trade\\s?zone|cnw'), acct = rx(S.acctSup, 'haymans');
       const poM = {}, zero = [];
       (data.pos || []).forEach(o => {
         if (!o.d || dead(o.st)) return;
@@ -679,7 +679,7 @@ ${e.kind == 'fuel' ? inp('estimates.' + i + '.veh', e.veh, 's', 'number') + '<sp
 <div class="f"><span>Opening balance</span>${inp('open', set.open, 's', 'number')}<span>what was in the bank on the start date, 0 if you don't know</span></div>
 <div class="f"><span>Invoices paid after</span>${inp('terms', set.terms, 's', 'number')}<span>days, unless a client below says different</span></div>
 <div class="f"><span>Super</span>${inp('superRate', set.superRate, 's', 'number')}<span>%</span><span>STC money lands</span>${inp('stcDelay', set.stcDelay, 's', 'number')}<span>days after the job</span><span>Look ahead</span>${inp('horizon', set.horizon, 's', 'number')}<span>days</span></div>
-<div class="f"><span>Suppliers on a monthly account</span>${inp('acctSup', set.acctSup, 'g', 'text', 'haymans|polyaire')}<span>part of each name with | between. Their AroFlo purchase orders are paid at the end of the next month, everyone else's on the day.</span></div></div>
+<div class="f"><span>Suppliers on a monthly account</span>${inp('acctSup', set.acctSup, 'g', 'text', 'haymans')}<span>part of each name with | between. Their AroFlo purchase orders are paid at the end of the next month, everyone else's on the day.</span></div></div>
 <div class="card paylist"><h4>Pay list</h4>${loaded ? `<div class="warn" style="background:#ecfdf5;border-color:#a7f3d0">${esc(loaded)}</div>` : ''}<p class="hint">Names and pay figures stay in this device's Tampermonkey. They are never in the script or sent anywhere.</p>${people}<div class="f"><button class="btn" data-act="add" data-list="people">Add a person</button>${names.length ? '' : '<span>Hit Refresh first so the names off the timesheets show here.</span>'}</div></div>
 <div class="card"><h4>Clients on different terms</h4>${terms}<div class="f"><button class="btn" data-act="add" data-list="clientTerms">Add a client</button></div></div>
 <div class="card"><h4>Estimated running costs</h4><p class="hint">Guesses for what can't be read from here. Untick one to leave it out. Amounts are what leaves the bank.</p>${est}<div class="f"><button class="btn" data-act="add" data-list="estimates">Add an estimate</button></div></div>
@@ -761,6 +761,7 @@ ${res ? `<div class="card"><h4>Purchase orders with no price</h4><p class="hint"
               const names = { terms: 'days to pay', open: 'opening balance', superRate: 'super', stcDelay: 'STC delay', horizon: 'look ahead' }, got = [];
               Object.keys(names).forEach(k => { const v = s.add.set[k]; if (v === undefined || v === '' || !isFinite(+v) || +v < 0) return; set[k] = +v; got.push(names[k] + ' ' + (+v)); });
               ['start', 'end'].forEach(k => { const v = s.add.set[k]; if (typeof v != 'string' || !(/^\d{4}-\d{2}-\d{2}$/.test(v) || (k == 'end' && v === ''))) return; set[k] = v; got.push(k + ' date ' + (v || 'cleared')); });
+              if (typeof s.add.set.acctSup == 'string' && s.add.set.acctSup.length <= 200) { try { new RegExp(s.add.set.acctSup); set.acctSup = s.add.set.acctSup; got.push('monthly account suppliers: ' + (set.acctSup || 'none')); } catch (e) {} }
               if (got.length) done.push(got.join(', '));
             }
             if (s.add.gear && typeof s.add.gear == 'object') { // figures for gear with no price in AroFlo: { 'po4279': { amt } or { none: true }, or a job number: { amt, d } }

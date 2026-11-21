@@ -195,13 +195,14 @@ const pd = {
   ],
 };
 const ps = { start: '2025-07-01', people: [], estimates: [] };
-const P0 = E.run(pd, ps, '2025-12-10'), lab = (R, re) => R.tx.filter(t => re.test(t.label));
+const P0 = E.run(Object.assign({}, pd, { pos: pd.pos.concat([{ no: '13', d: '2025-09-10', sup: 'POLYAIRE', jn: '', ex: 1000, st: 'PROCESSED' }]) }), ps, '2025-12-10'), lab = (R, re) => R.tx.filter(t => re.test(t.label));
 ok('account supplier: a month\'s orders are one payment', lab(P0, /haymans/i).map(t => [t.d, t.amt, t.kind]), [['2025-09-30', -330, 'sup']]);
 ok('own supplier before its account page starts: purchase orders stand in', lab(P0, /TRADEZONE account, August/).map(t => [t.d, t.amt]), [['2025-09-30', -330]]);
 ok('own supplier inside its account page: purchase order left out', P0.tx.some(t => t.amt == -440), false);
 ok('own supplier with no account page read: purchase orders stand in', lab(P0, /CNW account, September/).map(t => [t.d, t.amt]), [['2025-10-31', -550]]);
 ok('account page orders still counted', lab(P0, /Tradezone account, October/).map(t => t.amt), [-1100]);
 ok('everyone else is paid on the day', lab(P0, /BUNNINGS/).map(t => [t.d, t.amt, t.kind]), [['2025-09-09', -55, 'po']]);
+ok('Polyaire is paid on the day unless it is put on the account list', lab(P0, /POLYAIRE/).map(t => [t.d, t.amt, t.kind]), [['2025-09-10', -1100, 'po']]);
 ok('orders with no price are listed, newest first', P0.gear.map(g => [g.key, g.how]), [['po9', 'need'], ['po8', 'need'], ['po7', 'need']]);
 ok('nothing is counted for them till a figure is set', P0.tx.some(t => t.kind == 'gear'), false);
 ok('the lines on the order ride along', P0.gear.find(g => g.key == 'po7').li, '10x panels');
