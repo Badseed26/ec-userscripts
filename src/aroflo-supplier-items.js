@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AroFlo supplier items
 // @namespace    ec
-// @version      0.43
+// @version      0.44
 // @description  Supplier button on AroFlo quotes: search CNW and Tradezone with your own sign ins, pick an item, set the qty and it adds the line (item, part no, qty, cost in Value). Markup left alone, you press Save Quote. Order puts the quote's parts in your CNW or Tradezone cart (never checks out). Reprice, price compare, favourites, recents, stock at nearby branches and price history, synced through Todoist. Build from notes: AI reads the task and your notes into a priced, one-supplier material list for you to check.
 // @match        https://office.aroflo.com/ims/Site/Service/Quotes/*
 // @match        https://shop.cnw.com.au/*
@@ -946,7 +946,10 @@ Answer with JSON only: {"picks":[{"i":0,"C":2,"T":null}]}`;
     const sc = {}; sups.forEach(sp => sc[sp] = score(sp));
     // most in stock at your branch, then most found, then the cheaper total
     const better = (a, b) => a.stock != b.stock ? a.stock > b.stock : a.have != b.have ? a.have > b.have : a.total <= b.total;
-    const job = force || (sups.length == 1 ? sups[0] : (better(sc.CNW, sc.Tradezone) ? 'CNW' : 'Tradezone'));
+    // Tradezone wins outright when it has every item that's priced in stock at your Tradezone branch (Ethan, 22/11)
+    const priced = items.filter(it => sups.some(sp => it.pick[sp]));
+    const tzAll = sups.includes('Tradezone') && priced.length && priced.every(it => it.pick.Tradezone && it.pick.Tradezone.branch > 0);
+    const job = force || (sups.length == 1 ? sups[0] : tzAll ? 'Tradezone' : (better(sc.CNW, sc.Tradezone) ? 'CNW' : 'Tradezone'));
     const other = job == 'CNW' ? 'Tradezone' : 'CNW';
     const existing = lineRows().map(r => normCode(r.part)).filter(Boolean);
     items.forEach(it => {
