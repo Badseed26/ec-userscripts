@@ -233,6 +233,16 @@ ok('user number: not a whole number means none', E.userNo('EFS00000011'), '');
 ok('user number: odd characters mean none', E.userNo('EFS0000I0L0'), '');
 ok('user number: nothing in, nothing out', E.userNo(''), '');
 
+// ---- an estimate that only ran for part of the period ----
+const ed = { from: '2025-06-01', invoices: [], pos: [], times: [], sup: [], stc: {} };
+const es = (from, to) => ({ start: '2025-07-01', people: [], estimates: [{ name: 'Old van', kind: 'fixed', amt: 800, per: 'month', gst: false, from, to }, { name: 'Old van fuel', kind: 'fuel', veh: 1, km: 100, l100: 10, price: 2, gst: true, from, to }] });
+const EA = E.run(ed, es('', ''), '2026-03-10'), EB = E.run(ed, es('2025-09-01', '2025-12-31'), '2026-03-10');
+const van = R => R.tx.filter(t => t.label == 'Old van' && !t.proj), fuel = R => R.tx.filter(t => t.label == 'Old van fuel' && !t.proj);
+ok('no dates: the estimate runs the whole period (July to February, run on 10 March)', van(EA).length, 8);
+ok('from and to: only the months between them', van(EB).map(t => t.d.slice(0, 7)), ['2025-09', '2025-10', '2025-11', '2025-12']);
+ok('from and to: weekly costs stop as well', fuel(EB).every(t => t.d >= '2025-09-01' && t.d <= '2025-12-31') && fuel(EB).length > 15 && fuel(EB).length < fuel(EA).length, true);
+ok('from and to: the GST back follows the shorter run', EB.tx.filter(t => t.kind == 'gst' && t.tag == 'est' && t.d == '2025-10-28').map(t => t.amt), [E.r2(fuel(EB).filter(t => t.d < '2025-10-01').length * 20 / 11)]);
+
 // ---- the balance ----
 const A = E.tally(R), Dn = E.tally(R, t => t.tag == 'data');
 ok('balance is the lines added up', A.end, E.r2(R.tx.reduce((a, t) => a + t.amt, 0)));
