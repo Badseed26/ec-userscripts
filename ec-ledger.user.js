@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EC Ledger
 // @namespace    ec
-// @version      0.16
+// @version      0.17
 // @description  A pretend bank account on the AroFlo home page: invoices in, supplier accounts, pays, tax and estimated running costs out, replayed from the start date every run. Read only on AroFlo, Tradezone and CNW. Names and pay figures stay on this device.
 // @match        https://office.aroflo.com/ims/Site/Home/*
 // @grant        GM_xmlhttpRequest
@@ -22,7 +22,7 @@
   // Live updates (23/10): Tampermonkey only checks for a new version every few hours. This checks the repo's latest commit every
   // 2 min (free when nothing's changed) and keeps the newest code here, so a push runs on the next page load. If the new code needs
   // a permission this install hasn't got, or this browser won't run it, the built in copy below runs like before.
-  const __ecName = "ec-ledger", __ecVer = "0.16", __ecHave = new Set(["// @connect api.github.com", "// @connect raw.githubusercontent.com", "// @connect shop.cnw.com.au", "// @connect www.tradezone.com.au", "// @grant GM_getValue", "// @grant GM_setClipboard", "// @grant GM_setValue", "// @grant GM_xmlhttpRequest", "// @match https://office.aroflo.com/ims/Site/Home/*", "// @run-at document-idle"]);
+  const __ecName = "ec-ledger", __ecVer = "0.17", __ecHave = new Set(["// @connect api.github.com", "// @connect raw.githubusercontent.com", "// @connect shop.cnw.com.au", "// @connect www.tradezone.com.au", "// @grant GM_getValue", "// @grant GM_setClipboard", "// @grant GM_setValue", "// @grant GM_xmlhttpRequest", "// @match https://office.aroflo.com/ims/Site/Home/*", "// @run-at document-idle"]);
   const __ecInfo0 = typeof GM_info != 'undefined' ? GM_info : null;
   const __ecSay = m => { try { console.log('[live update] ' + __ecName + ': ' + m); } catch (e) {} };
   const __ecCmp = (a, b) => { const x = String(a).split('.').map(Number), y = String(b).split('.').map(Number); for (let i = 0; i < Math.max(x.length, y.length); i++) { const d = (x[i] || 0) - (y[i] || 0); if (d) return d; } return 0; };
@@ -73,7 +73,7 @@
   }
   if (window.top === window.self) { __ecCheck(); setInterval(__ecCheck, 2 * 60e3 + 5000); }
   if (__ecLive()) return;
-  // ---------- the built in copy (src/ec-ledger.js at 0.16) ----------
+  // ---------- the built in copy (src/ec-ledger.js at 0.17) ----------
 
 (function () {
   'use strict';
@@ -561,11 +561,22 @@
   let set = Object.assign(E.DEFAULTS(todayIso()), GM_getValue(SETKEY, null) || {}), data = GM_getValue(DATAKEY, null), res = null;
   let tab = 'over', hard = false, ahead = false, more = 150, busy = false, box, note = '', loaded = '', sorted = false, gsorted = false;
   const VER = (() => { try { return GM_info.script.version || ''; } catch (e) { return ''; } })(); // shown in the title, so it's clear which copy is installed
-  const saveSet = () => { try { GM_setValue(SETKEY, set); } catch (e) {} };
+  // Every save is stamped (_rev). Tampermonkey can hand back an older copy for a moment after a save (seen on the iPhone), so
+  // a stored copy only replaces what this page holds when its stamp is newer. Each save is read back a moment later, tried
+  // again once if it didn't take, and said out loud if it still hasn't, so a save that didn't stick is never a quiet one.
+  let rev = +set._rev || 0, saveBad = '', dataBad = false;
+  const stored = () => { try { const s = GM_getValue(SETKEY, null); return s && typeof s == 'object' ? s : null; } catch (e) { return null; } };
+  const checkSaved = (want, again) => setTimeout(() => {
+    const s = stored(); if (s && (+s._rev || 0) >= want) { if (saveBad) { saveBad = ''; draw(); } return; }
+    if (want != rev) return; // a newer save is on its way and has its own check
+    if (again) { try { GM_setValue(SETKEY, set); } catch (e) {} return checkSaved(want, false); }
+    saveBad = 'Tampermonkey didn\'t keep the last change to the settings on this device. Copy your settings code (Settings, bottom of the page) so nothing is lost, then reload the page.'; say(saveBad); draw();
+  }, 1500);
+  const saveSet = () => { rev = Math.max(Date.now(), rev + 1); set._rev = rev; try { GM_setValue(SETKEY, set); } catch (e) {} checkSaved(rev, true); };
   // Another AroFlo tab (or an older copy still open in one) can have saved since this page loaded. The whole lot is saved in one
   // go, so before anything is changed here the latest saved settings are picked up first. Otherwise this tab would write its
   // older copy over the top and wipe what the other one saved (20/11: a batch of STC figures went that way).
-  const sync = () => { try { const s = GM_getValue(SETKEY, null); if (s && typeof s == 'object') set = Object.assign(E.DEFAULTS(todayIso()), s); } catch (e) {} };
+  const sync = () => { const s = stored(); if (s && (+s._rev || 0) > rev) { set = Object.assign(E.DEFAULTS(todayIso()), s); rev = +s._rev || 0; } };
   const calc = () => { res = data ? E.run(data, set, todayIso()) : null; };
   // Copy without waiting forever on it: the browser's own copy can hang or be refused, and Tampermonkey's can say it worked
   // when it didn't (iPhone). true = copied, 'maybe' = Tampermonkey's go, false = no luck.
@@ -727,6 +738,8 @@ ${res.ended ? '' : `<line x1="${X(td).toFixed(1)}" x2="${X(td).toFixed(1)}" y1="
     const oth = Object.keys(res.others);
     if (oth.length) W.push('Hours logged by people not on the pay list (not paid here): ' + oth.map(n => esc(n) + ' ' + Math.round(res.others[n]) + ' h').join(', ') + '.');
     if (res.drafts.n) W.push(res.drafts.n + ' invoice' + (res.drafts.n > 1 ? 's' : '') + ' still in progress or waiting on approval in AroFlo (' + $0(res.drafts.inc) + ') ' + (res.drafts.n > 1 ? 'are' : 'is') + ' not counted until approved.');
+    if (saveBad) W.push(esc(saveBad));
+    if (dataBad) W.push('This read was too big for Tampermonkey to keep on this device, so after the page reloads the one before it will show. Hit Refresh again then.');
     (data.warn || []).forEach(w => W.push(esc(w)));
     if (data.start != set.start) W.push('The start date has changed since the last read. Hit Refresh to read again.');
     const kinds = Object.keys(KIND).filter(k => T.kinds[k]).map(k => `<div class="row"><div class="t">${KIND[k]}</div><div class="a">${amt(T.kinds[k], $0)}</div></div>`).join('');
@@ -816,6 +829,7 @@ ${res ? `<div class="card"><h4>Purchase orders with no price</h4><p class="hint"
     try {
       data = await readAll(set, say);
       try { GM_setValue(DATAKEY, data); } catch (e) {}
+      const at = data.at; dataBad = false; setTimeout(() => { let d = null; try { d = GM_getValue(DATAKEY, null); } catch (e) {} if (data && data.at == at && (!d || d.at != at)) { dataBad = true; draw(); } }, 4000);
       calc(); say('Read in ' + Math.round((Date.now() - t0) / 1000) + ' sec.' + (data.warn.length ? ' ' + data.warn.length + ' thing' + (data.warn.length > 1 ? 's' : '') + ' to check on the Overview.' : ''));
     } catch (e) { say('Stopped: ' + (e && e.message || e)); }
     busy = false; draw();
