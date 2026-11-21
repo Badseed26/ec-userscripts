@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AroFlo supplier items
 // @namespace    ec
-// @version      0.44
+// @version      0.45
 // @description  Supplier button on AroFlo quotes: search CNW and Tradezone with your own sign ins, pick an item, set the qty and it adds the line (item, part no, qty, cost in Value). Markup left alone, you press Save Quote. Order puts the quote's parts in your CNW or Tradezone cart (never checks out). Reprice, price compare, favourites, recents, stock at nearby branches and price history, synced through Todoist. Build from notes: AI reads the task and your notes into a priced, one-supplier material list for you to check.
 // @match        https://office.aroflo.com/ims/Site/Service/Quotes/*
 // @match        https://shop.cnw.com.au/*
@@ -28,7 +28,7 @@
   // Live updates (23/10): Tampermonkey only checks for a new version every few hours. This checks the repo's latest commit every
   // 2 min (free when nothing's changed) and keeps the newest code here, so a push runs on the next page load. If the new code needs
   // a permission this install hasn't got, or this browser won't run it, the built in copy below runs like before.
-  const __ecName = "aroflo-supplier-items", __ecVer = "0.44", __ecHave = new Set(["// @connect api.anthropic.com", "// @connect api.github.com", "// @connect api.todoist.com", "// @connect raw.githubusercontent.com", "// @connect shop.cnw.com.au", "// @connect www.tradezone.com.au", "// @grant GM_deleteValue", "// @grant GM_getValue", "// @grant GM_listValues", "// @grant GM_setValue", "// @grant GM_xmlhttpRequest", "// @grant unsafeWindow", "// @match https://office.aroflo.com/ims/Site/Service/Quotes/*", "// @match https://shop.cnw.com.au/*", "// @match https://www.tradezone.com.au/*", "// @run-at document-idle"]);
+  const __ecName = "aroflo-supplier-items", __ecVer = "0.45", __ecHave = new Set(["// @connect api.anthropic.com", "// @connect api.github.com", "// @connect api.todoist.com", "// @connect raw.githubusercontent.com", "// @connect shop.cnw.com.au", "// @connect www.tradezone.com.au", "// @grant GM_deleteValue", "// @grant GM_getValue", "// @grant GM_listValues", "// @grant GM_setValue", "// @grant GM_xmlhttpRequest", "// @grant unsafeWindow", "// @match https://office.aroflo.com/ims/Site/Service/Quotes/*", "// @match https://shop.cnw.com.au/*", "// @match https://www.tradezone.com.au/*", "// @run-at document-idle"]);
   const __ecInfo0 = typeof GM_info != 'undefined' ? GM_info : null;
   const __ecSay = m => { try { console.log('[live update] ' + __ecName + ': ' + m); } catch (e) {} };
   const __ecCmp = (a, b) => { const x = String(a).split('.').map(Number), y = String(b).split('.').map(Number); for (let i = 0; i < Math.max(x.length, y.length); i++) { const d = (x[i] || 0) - (y[i] || 0); if (d) return d; } return 0; };
@@ -79,7 +79,7 @@
   }
   if (window.top === window.self) { __ecCheck(); setInterval(__ecCheck, 2 * 60e3 + 5000); }
   if (__ecLive()) return;
-  // ---------- the built in copy (src/aroflo-supplier-items.js at 0.44) ----------
+  // ---------- the built in copy (src/aroflo-supplier-items.js at 0.45) ----------
 
 // ---------- one off (18/11/2026): moves this device's saved data over from the old names. Take this block out once every device has run it ----------
 try {
@@ -1586,6 +1586,7 @@ ${x ? `<div class="mt">Ordering ${esc(x.sup)} ${money(x.price)}${x.uom ? '/' + e
   let bridgePlan = null;
   const API = {
     ping: async () => ({ v: GM_info.script.version }),
+    debug: async () => debug,   // what Copy debug grabs: each supplier's last url, status and a sample of the page
     search: async (term, sups) => {
       const use = sups && sups.length ? sups : ['CNW', 'Tradezone'];
       const out = [];

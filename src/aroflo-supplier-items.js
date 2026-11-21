@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AroFlo supplier items
 // @namespace    ec
-// @version      0.44
+// @version      0.45
 // @description  Supplier button on AroFlo quotes: search CNW and Tradezone with your own sign ins, pick an item, set the qty and it adds the line (item, part no, qty, cost in Value). Markup left alone, you press Save Quote. Order puts the quote's parts in your CNW or Tradezone cart (never checks out). Reprice, price compare, favourites, recents, stock at nearby branches and price history, synced through Todoist. Build from notes: AI reads the task and your notes into a priced, one-supplier material list for you to check.
 // @match        https://office.aroflo.com/ims/Site/Service/Quotes/*
 // @match        https://shop.cnw.com.au/*
@@ -1526,6 +1526,7 @@ ${x ? `<div class="mt">Ordering ${esc(x.sup)} ${money(x.price)}${x.uom ? '/' + e
   let bridgePlan = null;
   const API = {
     ping: async () => ({ v: GM_info.script.version }),
+    debug: async () => debug,   // what Copy debug grabs: each supplier's last url, status and a sample of the page
     search: async (term, sups) => {
       const use = sups && sups.length ? sups : ['CNW', 'Tradezone'];
       const out = [];
