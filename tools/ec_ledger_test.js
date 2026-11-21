@@ -243,6 +243,20 @@ ok('from and to: only the months between them', van(EB).map(t => t.d.slice(0, 7)
 ok('from and to: weekly costs stop as well', fuel(EB).every(t => t.d >= '2025-09-01' && t.d <= '2025-12-31') && fuel(EB).length > 15 && fuel(EB).length < fuel(EA).length, true);
 ok('from and to: the GST back follows the shorter run', EB.tx.filter(t => t.kind == 'gst' && t.tag == 'est' && t.d == '2025-10-28').map(t => t.amt), [E.r2(fuel(EB).filter(t => t.d < '2025-10-01').length * 20 / 11)]);
 
+// ---- the summary handed to Claude ----
+const SM = E.summary(R, data), TT = E.tally(R);
+ok('summary: a row for every month from the start to today', SM.months.map(m => m.ym), ['2026-07', '2026-08', '2026-09', '2026-10', '2026-11']);
+ok('summary: the months add up to the money in', E.r2(SM.months.reduce((a, m) => a + m.in, 0)), TT.in);
+ok('summary: the months add up to the money out', E.r2(SM.months.reduce((a, m) => a + m.out, 0)), TT.out);
+ok('summary: the last closing balance is today\'s balance', SM.months[SM.months.length - 1].bal, TT.now);
+ok('summary: each month\'s kinds add up to its in less out', SM.months.every(m => Math.abs(Object.values(m.kinds).reduce((a, v) => a + v, 0) - (m.in - m.out)) < 0.02), true);
+ok('summary: clients add up to the invoices paid', E.r2(SM.clients.reduce((a, c) => a + c.inc, 0)), E.r2(R.tx.filter(t => t.kind == 'inv' && !t.proj).reduce((a, t) => a + t.amt, 0)));
+ok('summary: suppliers add up to the supplier money', E.r2(SM.sups.reduce((a, c) => a + c.inc, 0)), E.r2(-R.tx.filter(t => /^(sup|po|gear)$/.test(t.kind) && !t.proj).reduce((a, t) => a + t.amt, 0)));
+ok('summary: pay totals match the pay weeks so far', E.r2(SM.people.reduce((a, p) => a + p.gross, 0)), E.r2(R.wageWeeks.filter(w => w.pay <= R.today).reduce((a, w) => a + w.gross, 0)));
+ok('summary: tags add up to the balance', E.r2(Object.values(SM.tags).reduce((a, v) => a + v, 0) + SM.open), TT.now);
+ok('summary: nothing projected', SM.months.every(m => m.ym <= R.today.slice(0, 7)), true);
+ok('summary: hours are only the pay list\'s', E.r2(SM.months.reduce((a, m) => a + m.hours, 0)) > 0 && E.r2(SM.months.reduce((a, m) => a + m.hours, 0)) <= data.times.length * 24, true);
+
 // ---- the balance ----
 const A = E.tally(R), Dn = E.tally(R, t => t.tag == 'data');
 ok('balance is the lines added up', A.end, E.r2(R.tx.reduce((a, t) => a + t.amt, 0)));

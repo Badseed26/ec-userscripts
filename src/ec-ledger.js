@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EC Ledger
 // @namespace    ec
-// @version      0.15
+// @version      0.16
 // @description  A pretend bank account on the AroFlo home page: invoices in, supplier accounts, pays, tax and estimated running costs out, replayed from the start date every run. Read only on AroFlo, Tradezone and CNW. Names and pay figures stay on this device.
 // @match        https://office.aroflo.com/ims/Site/Home/*
 // @grant        GM_xmlhttpRequest
@@ -152,7 +152,7 @@
         const ex = +i.ex || 0, inc = +i.inc || ex * 1.1; if (!inc) return;
         const d = nextBiz(add(i.d, termFor(i.cl)));
         if (draft(i.st)) { if (d >= S.start && i.d <= asAt) { drafts.n++; drafts.inc = r2(drafts.inc + inc); drafts.list.push({ n: i.n, jn: i.jn || '', d: i.d, inc: r2(inc), st: i.st }); } return; }
-        push(d, inc, 'data', 'inv', 'Invoice ' + i.n + (i.cl ? ', ' + i.cl : ''), { ref: i.jn || '', sub: i.tn || '', pre: i.d < S.start });
+        push(d, inc, 'data', 'inv', 'Invoice ' + i.n + (i.cl ? ', ' + i.cl : ''), { ref: i.jn || '', sub: i.tn || '', pre: i.d < S.start, cl: i.cl || '' });
         addGst('data', d, inc - (ex || inc / 1.1));
         if (i.jn) { const j = jobs[i.jn] = jobs[i.jn] || { jn: i.jn, name: i.tn || '', text: '', first: i.d, last: i.d, inc: 0 }; j.inc = r2(j.inc + inc); j.text += ' ' + (i.tn || '') + ' ' + (i.desc || ''); if (i.d < j.first) j.first = i.d; if (i.d > j.last) j.last = i.d; }
       });
@@ -177,7 +177,7 @@
       const canon = x => String(x || '').toLowerCase().replace(/[^a-z0-9]/g, '');
       const supM = {}, oldest = {};
       (data.sup || []).forEach(o => { const inc = +o.inc || 0; if (!inc || !o.d) return; const c = canon(o.sup), ym = o.d.slice(0, 7), k = c + '|' + ym, m = supM[k] = supM[k] || { sup: o.sup, ym, inc: 0, n: 0 }; m.inc += inc; m.n++; if (!oldest[c] || ym < oldest[c]) oldest[c] = ym; });
-      Object.values(supM).forEach(m => { const d = prevBiz(eom(addMonth(m.ym, 1))); push(d, -m.inc, 'data', 'sup', m.sup + ' account, ' + mName(m.ym) + ' (' + m.n + ' orders)', { n: m.n, pre: m.ym < startYm }); addGst('data', d, -m.inc / 11); });
+      Object.values(supM).forEach(m => { const d = prevBiz(eom(addMonth(m.ym, 1))); push(d, -m.inc, 'data', 'sup', m.sup + ' account, ' + mName(m.ym) + ' (' + m.n + ' orders)', { n: m.n, pre: m.ym < startYm, sup: m.sup }); addGst('data', d, -m.inc / 11); });
 
       // ---- AroFlo's purchase orders, GST added. Tradezone and CNW are left to their account pages above, except for months
       // those pages don't cover (signed out, or before their first order there), where the purchase orders stand in.
@@ -191,21 +191,21 @@
         if (isOwn) { const h = Object.keys(oldest).find(k => c.includes(k) || k.includes(c)); if (h && ym >= oldest[h]) return; }
         if (!ex) { zero.push(o); return; }
         if (isOwn || acct.test(sup)) { const k = c + '|' + ym, m = poM[k] = poM[k] || { sup, ym, ex: 0, n: 0 }; m.ex += ex; m.n++; return; }
-        push(o.d, -ex * 1.1, 'data', 'po', sup + (o.no ? ', PO ' + o.no : ''), { ref: o.jn || '' }); addGst('data', o.d, -ex * 0.1);
+        push(o.d, -ex * 1.1, 'data', 'po', sup + (o.no ? ', PO ' + o.no : ''), { ref: o.jn || '', sup }); addGst('data', o.d, -ex * 0.1);
       });
-      Object.values(poM).forEach(m => { const d = prevBiz(eom(addMonth(m.ym, 1))); push(d, -m.ex * 1.1, 'data', 'sup', m.sup + ' account, ' + mName(m.ym) + ' (' + m.n + ' purchase orders)', { n: m.n, pre: m.ym < startYm }); addGst('data', d, -m.ex * 0.1); });
+      Object.values(poM).forEach(m => { const d = prevBiz(eom(addMonth(m.ym, 1))); push(d, -m.ex * 1.1, 'data', 'sup', m.sup + ' account, ' + mName(m.ym) + ' (' + m.n + ' purchase orders)', { n: m.n, pre: m.ym < startYm, sup: m.sup }); addGst('data', d, -m.ex * 0.1); });
 
       // ---- gear on a purchase order with no price in AroFlo: nothing can be counted for it till a figure is set (ex GST),
       // for the order ('po' and its number) or for a whole job (the job number, which then covers that job's orders).
       // Paid on the order's day, GST added. ----
       const G = S.gear || {}, gear = [], byJob = {};
-      const gPush = (d, a, label, ref, why) => { push(d, -a * 1.1, 'set', 'gear', label, { ref: ref || '', sub: why || '' }); addGst('est', d, -a * 0.1); };
+      const gPush = (d, a, label, ref, why, sup) => { push(d, -a * 1.1, 'set', 'gear', label, { ref: ref || '', sub: why || '', sup: sup || 'Unpriced gear' }); addGst('est', d, -a * 0.1); };
       zero.forEach(o => {
         if (o.jn && G[o.jn]) { (byJob[o.jn] = byJob[o.jn] || []).push(o); return; }
         if (o.d < S.start || o.d > asAt) return;
         const key = 'po' + o.no, mine = G[key], how = mine ? (mine.none ? 'none' : 'set') : 'need', a = how == 'set' ? Math.abs(+mine.amt || 0) : 0;
         gear.push({ key, no: o.no, jn: o.jn || '', sup: o.sup || '', d: o.d, how, amt: a, li: o.li || '' });
-        if (a) gPush(o.d, a, (o.sup || 'Supplier') + ', PO ' + o.no + ' (no price in AroFlo)', o.jn, mine.why);
+        if (a) gPush(o.d, a, (o.sup || 'Supplier') + ', PO ' + o.no + ' (no price in AroFlo)', o.jn, mine.why, o.sup);
       });
       Object.keys(G).forEach(k => {
         const g = G[k]; if (!g || !/^\d{3,6}$/.test(k)) return;
@@ -213,7 +213,7 @@
         if (!d || d < S.start || d > asAt) return;
         const how = g.none ? 'none' : 'set', a = how == 'set' ? Math.abs(+g.amt || 0) : 0;
         gear.push({ key: k, no: pos.map(o => o.no).join(', '), jn: k, sup: (pos[0] && pos[0].sup) || '', d, how, amt: a, li: pos.map(o => o.li).filter(Boolean).join('; ') });
-        if (a) gPush(d, a, 'Gear for job ' + k + ' (no price in AroFlo)', k, g.why);
+        if (a) gPush(d, a, 'Gear for job ' + k + ' (no price in AroFlo)', k, g.why, pos[0] && pos[0].sup);
       });
 
       // ---- pays: every Wednesday for the Wednesday to Tuesday before it, super the same day ----
@@ -279,7 +279,30 @@
       return { rows, now: r2(now), in: r2(inn), out: r2(out), preIn: r2(preIn), preOut: r2(preOut), low, end: bal, kinds, weeks: Object.values(weeks).sort((a, b) => a.ws < b.ws ? -1 : 1) };
     }
 
-    return { run, tally, payWeek, withhold, hoursByDay, userNo, DEFAULTS, HOLS, add, dow, nextBiz, prevBiz, eom, addMonth, fyStart, mName, dShort, r2 };
+    // The whole picture boiled down for a second pair of eyes: money by month and kind, who it came from and went to, pay
+    // totals and hours. Only what has already moved (nothing projected). data is the last read, for the hours.
+    function summary(res, data) {
+      const T = tally(res), rows = T.rows.filter(r => !r.proj), S = res.set, key = x => String(x || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+      const months = {}, tags = {}, clients = {}, sups = {}, ests = {};
+      rows.forEach(r => {
+        const ym = r.d.slice(0, 7), m = months[ym] = months[ym] || { ym, kinds: {}, in: 0, out: 0, bal: 0, hours: 0 };
+        m.kinds[r.kind] = r2((m.kinds[r.kind] || 0) + r.amt); if (r.amt > 0) m.in = r2(m.in + r.amt); else m.out = r2(m.out - r.amt); m.bal = r.bal;
+        tags[r.tag] = r2((tags[r.tag] || 0) + r.amt);
+        if (r.kind == 'inv') { const c = clients[key(r.cl) || '?'] = clients[key(r.cl) || '?'] || { name: r.cl || 'No client name', n: 0, inc: 0 }; c.n++; c.inc = r2(c.inc + r.amt); }
+        if (r.kind == 'sup' || r.kind == 'po' || r.kind == 'gear') { const c = sups[key(r.sup) || '?'] = sups[key(r.sup) || '?'] || { name: r.sup || 'No supplier name', inc: 0 }; c.inc = r2(c.inc - r.amt); }
+        if (r.kind == 'est') ests[r.label] = r2((ests[r.label] || 0) - r.amt);
+      });
+      const names = new Set((S.people || []).map(p => p.name)), hrs = {};
+      (data && data.times || []).forEach(t => { const d = String(t.s).slice(0, 10); if (!names.has(t.who) || d < S.start || d > res.today) return; const h = (Date.parse(String(t.e).slice(0, 19) + 'Z') - Date.parse(String(t.s).slice(0, 19) + 'Z')) / 36e5; if (h > 0 && h <= 24) hrs[d.slice(0, 7)] = (hrs[d.slice(0, 7)] || 0) + h; });
+      const list = []; let bal = +S.open || 0;
+      for (let ym = S.start.slice(0, 7); ym <= res.today.slice(0, 7); ym = addMonth(ym, 1)) { const m = months[ym] || { ym, kinds: {}, in: 0, out: 0, bal, hours: 0 }; bal = m.bal; m.hours = r2(hrs[ym] || 0); list.push(m); }
+      const people = {};
+      (res.wageWeeks || []).filter(w => w.pay <= res.today).forEach(w => { const p = people[w.who] = people[w.who] || { name: w.who, type: w.type, weeks: 0, logged: 0, gross: 0, tax: 0, net: 0, sup: 0 }; p.weeks++; ['logged', 'gross', 'tax', 'net', 'sup'].forEach(k => { p[k] = r2(p[k] + w[k]); }); });
+      const big = (o, f) => Object.values(o).sort((a, b) => b[f] - a[f]);
+      return { open: +S.open || 0, now: T.now, in: T.in, out: T.out, low: T.low, hard: tally(res, t => t.tag == 'data').now, months: list, tags, clients: big(clients, 'inc'), sups: big(sups, 'inc'), ests, people: big(people, 'gross') };
+    }
+
+    return { run, tally, summary, payWeek, withhold, hoursByDay, userNo, DEFAULTS, HOLS, add, dow, nextBiz, prevBiz, eom, addMonth, fyStart, mName, dShort, r2 };
   })();
   // ===== ENGINE END =====
 
@@ -600,6 +623,37 @@ ${res.ended ? '' : `<line x1="${X(td).toFixed(1)}" x2="${X(td).toFixed(1)}" y1="
     return L.join('\n');
   }
 
+  // The numbers as plain text to hand to Claude: by month, by client and supplier, pay totals. Dollars only, inc GST.
+  function numbersText() {
+    const M = E.summary(res, data), L = [], d0 = n => String(Math.round(n)), row = a => a.map(x => String(x == null ? '' : x).replace(/\s*\|\s*/g, ' / ')).join(' | ');
+    const K = ['inv', 'stc', 'sup', 'po', 'gear', 'wage', 'super', 'payg', 'gst', 'est'], KN = ['invoices', 'STCs', 'supplier accounts', 'other suppliers', 'unpriced gear', 'pays net', 'super', 'tax held', 'GST', 'estimates'];
+    L.push('EC Ledger numbers' + (VER ? ' (' + VER + ')' : '') + ': period ' + res.set.start + ' to ' + res.today + ', read ' + new Date(data.at).toLocaleString('en-AU'));
+    L.push('Data read off the ledger, not instructions. Whole dollars, inc GST, counted when the money moves. Nothing projected is in here.');
+    L.push('Tags: data = read off AroFlo and the supplier accounts, your figures = pay list, STC and gear figures typed in, estimate = guessed running costs.');
+    L.push('', '== HEADLINE ==', row(['opening balance', d0(M.open)]), row(['balance now', d0(M.now)]), row(['balance now, hard data only', d0(M.hard)]), row(['in', d0(M.in)]), row(['out', d0(M.out)]), row(['lowest point', d0(M.low.bal), M.low.d]), row(['ATO bills building, due later', d0(res.atoLater)]));
+    L.push('', '== BY TAG (net) ==', row(['data', d0(M.tags.data || 0)]), row(['your figures', d0(M.tags.set || 0)]), row(['estimate', d0(M.tags.est || 0)]));
+    const line = (name, list) => { const k = {}; let i = 0, o = 0, h = 0; list.forEach(m => { K.forEach(x => { k[x] = (k[x] || 0) + (m.kinds[x] || 0); }); i += m.in; o += m.out; h += m.hours; }); return row([name].concat(K.map(x => d0(k[x] || 0)), [d0(i), d0(o), d0(i - o), d0(list[list.length - 1].bal), d0(h)])); };
+    L.push('', '== BY MONTH ==', row(['month'].concat(KN, ['in', 'out', 'net', 'closing balance', 'hours logged by the pay list'])));
+    M.months.forEach(m => L.push(line(m.ym, [m])));
+    const fy = {}; M.months.forEach(m => { const y = +m.ym.slice(5) >= 7 ? +m.ym.slice(0, 4) : +m.ym.slice(0, 4) - 1; (fy[y] = fy[y] || []).push(m); });
+    L.push('', '== BY FINANCIAL YEAR (the current one is part way through) ==', row(['year', 'months'].concat(KN, ['in', 'out', 'net', 'closing balance', 'hours'])));
+    Object.keys(fy).sort().forEach(y => { const a = line('FY' + y + '-' + String(+y + 1).slice(2), fy[y]).split(' | '); a.splice(1, 0, String(fy[y].length)); L.push(a.join(' | ')); });
+    L.push('', '== MONEY IN BY CLIENT (top 15 of ' + M.clients.length + ') ==', 'client | invoices paid | amount');
+    M.clients.slice(0, 15).forEach(c => L.push(row([c.name, c.n, d0(c.inc)])));
+    const rest = M.clients.slice(15); if (rest.length) L.push(row(['everyone else', rest.reduce((a, c) => a + c.n, 0), d0(rest.reduce((a, c) => a + c.inc, 0))]));
+    L.push('', '== MONEY OUT BY SUPPLIER (top 12 of ' + M.sups.length + ') ==', 'supplier | amount');
+    M.sups.slice(0, 12).forEach(c => L.push(row([c.name, d0(c.inc)])));
+    const rs = M.sups.slice(12); if (rs.length) L.push(row(['everyone else', d0(rs.reduce((a, c) => a + c.inc, 0))]));
+    L.push('', '== PAY, FROM THE PAY LIST (the rates are settings, not real payroll) ==', 'who | type | pay weeks | hours logged | gross | tax held | net | super');
+    M.people.forEach(p => L.push(row([p.name, p.type || 'hourly', p.weeks, d0(p.logged), d0(p.gross), d0(p.tax), d0(p.net), d0(p.sup)])));
+    L.push('', '== ESTIMATED RUNNING COSTS ==', 'what | amount');
+    Object.keys(M.ests).sort((a, b) => M.ests[b] - M.ests[a]).forEach(k => L.push(row([k, d0(M.ests[k])])));
+    const sn = res.solar.filter(x => x.how == 'need').length, gn = (res.gear || []).filter(x => x.how == 'need').length;
+    L.push('', '== STILL OPEN ==', row(['solar jobs with no STC figure', sn]), row(['purchase orders with no price', gn]), row(['invoices not yet approved', res.drafts.n, d0(res.drafts.inc)]), row(['hours by people not on the pay list', Object.keys(res.others).map(n => n + ' ' + Math.round(res.others[n])).join(', ') || 'none']));
+    L.push(row(['settings', 'invoices paid after ' + res.set.terms + ' days' + ((res.set.clientTerms || []).length ? ' (' + res.set.clientTerms.map(t => t.match + ' ' + t.days).join(', ') + ')' : '') + ', super ' + res.set.superRate + '%, monthly account suppliers: ' + (res.set.acctSup || 'none')]));
+    return L.join('\n');
+  }
+
   function vOver() {
     if (!res) return `<div class="card">Nothing read yet. Hit <b>Refresh</b> up top: it reads AroFlo, Tradezone and CNW (read only, nothing is changed) and takes a minute or two. Sign in to Tradezone and CNW in this browser first.</div>`;
     const T = E.tally(res, hard ? t => t.tag == 'data' : null), W = [];
@@ -627,7 +681,7 @@ ${res.ended ? '' : `<div class="tile"><div class="v ${T.end < 0 ? 'neg' : ''}">$
 ${hard ? '' : `<div class="tile"><div class="v">${$0(res.atoLater)}</div><div class="l">ATO bills building, due later</div></div>`}
 </div>
 ${W.map(w => `<div class="warn">${w}</div>`).join('')}
-<div class="f" style="margin-bottom:12px;border:0"><button class="btn g2" data-act="log">Copy the issues log</button><span>Everything that needs a look or a number, to paste to Claude.</span></div><textarea class="logbox" readonly style="display:none;height:120px;margin-bottom:12px"></textarea>
+<div class="f" style="margin-bottom:12px;border:0"><button class="btn g2" data-act="log">Copy the issues log</button><button class="btn g2" data-act="nums">Copy the numbers</button><span>The issues log is everything that needs a look or a number. The numbers are the money by month, client and supplier with the pay totals, for Claude to say how things are going. Paste either to Claude.</span></div><textarea class="logbox" readonly style="display:none;height:120px;margin-bottom:12px"></textarea>
 <div class="card"><h4>Balance</h4>${chart(T)}</div>
 <div class="card"><h4>Where it went, ${E.dShort(res.set.start)} to ${res.ended ? E.dShort(res.today) : 'today'}</h4>${kinds || 'No lines yet.'}</div>
 ${T.preIn || T.preOut ? `<div class="card"><h4>From before the start date</h4><p class="hint">Only money that moved inside the period is counted, the same as a bank statement for those dates. Some of that is for work or bills from before ${E.dShort(res.set.start)} that got paid after it: <b>${$0(T.preIn)}</b> in and <b>${$0(T.preOut)}</b> out. Those lines are marked before start in the Statement. Nothing that moved before the start date is in here.</p></div>` : ''}
@@ -734,6 +788,12 @@ ${res ? `<div class="card"><h4>Purchase orders with no price</h4><p class="hint"
       if (a == 'more') { more += 300; draw(); }
       if (a == 'sorted') { sorted = !sorted; draw(); }
       if (a == 'gsorted') { gsorted = !gsorted; draw(); }
+      if (a == 'nums') {
+        const text = numbersText(), ta = box.querySelector('.logbox');
+        ta.style.display = 'block'; ta.value = text;
+        const ok = await copyText(text); if (ok !== true) { ta.focus(); ta.select(); }
+        say(ok === true ? 'Numbers copied (' + text.split('\n').length + ' lines). Paste them to Claude.' : ok ? 'Should be copied. If it won\'t paste, select all in the box and copy it.' : 'Select all in the box and copy it.');
+      }
       if (a == 'log') {
         // the text goes in a box first, so it's there to copy by hand whatever the clipboard does
         const text = issuesLog(), ta = box.querySelector('.logbox');
@@ -806,7 +866,7 @@ ${res ? `<div class="card"><h4>Purchase orders with no price</h4><p class="hint"
     if (data) say('Showing the last read. Hit Refresh for a fresh one.');
   }
   // for checking the reads from a browser console: set window.__ecLedgerDev = true before this runs
-  try { if (window.__ecLedgerDev === true) window.__ecLedgerDev = { ENGINE, readAroflo, readSupplier, readAll, parseDate }; } catch (e) {}
+  try { if (window.__ecLedgerDev === true) window.__ecLedgerDev = { ENGINE, readAroflo, readSupplier, readAll, parseDate, numbersText: () => numbersText(), load: (d, st) => { data = d; set = Object.assign(E.DEFAULTS(todayIso()), st || {}); calc(); } }; } catch (e) {}
   const ready = () => { if (document.body && !document.getElementById('ec-lg-btn')) build(); };
   if (document.readyState == 'loading') document.addEventListener('DOMContentLoaded', ready); else ready();
 })();
