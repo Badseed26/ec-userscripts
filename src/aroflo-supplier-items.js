@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AroFlo supplier items
 // @namespace    ec
-// @version      0.41
+// @version      0.42
 // @description  Supplier button on AroFlo quotes: search CNW and Tradezone with your own sign ins, pick an item, set the qty and it adds the line (item, part no, qty, cost in Value). Markup left alone, you press Save Quote. Order puts the quote's parts in your CNW or Tradezone cart (never checks out). Reprice, price compare, favourites, recents, stock at nearby branches and price history, synced through Todoist. Build from notes: AI reads the task and your notes into a priced, one-supplier material list for you to check.
 // @match        https://office.aroflo.com/ims/Site/Service/Quotes/*
 // @match        https://shop.cnw.com.au/*
@@ -1099,14 +1099,22 @@ ${x ? `<div class="mt">Ordering ${esc(x.sup)} ${money(x.price)}${x.uom ? '/' + e
   const addBtns = () => [...document.querySelectorAll('button')].filter(b => /^\s*Add Line Item\s*$/i.test(b.textContent) && b.offsetParent);
   function folderBtn(name) {
     const want = clean(name).toLowerCase();
-    for (const b of addBtns()) { const li = b.closest('li'); const f = li && li.querySelector('td.q-col-item input:not([type=hidden]), td.q-col-item textarea'); if (f && clean(f.value).toLowerCase() == want && b !== addBtns().slice(-1)[0]) return b; }
+    // a folder's Add Line Item sits in a footer line in the folder's child list (ul.ul-child), so the folder is the
+    // list item that holds that list, and its name is the first item box in it (checked on a real quote 22/11)
+    const all = addBtns(), top = all[all.length - 1];
+    for (const b of all) {
+      if (b === top) continue;
+      const ul = b.closest('ul.ul-child'), li = (ul && ul.parentElement && ul.parentElement.closest('li')) || b.closest('li');
+      const f = li && li.querySelector('td.q-col-item input:not([type=hidden]), td.q-col-item textarea');
+      if (f && clean(f.value).toLowerCase() == want) return b;
+    }
     return null;
   }
   async function newFolder(name) {
     const before = new Set(addBtns());
     target = null;
     await addLine({ name, code: '', price: 0 }, 1);
-    const inp = itemInputs().find(x => x.value == name); const row = inp && inp.closest('tr');
+    const inp = itemInputs().filter(x => x.value == name).pop(); const row = inp && inp.closest('tr');   // the new one is last
     const plus = row && row.querySelector('span[title="Convert Ad-Hoc to Assembly"], [title="Convert Ad-Hoc to Assembly"]');
     if (!plus) throw new Error('couldn\'t turn "' + name + '" into a folder');
     if (W.jQuery) W.jQuery(plus).trigger('click'); else plus.click();
