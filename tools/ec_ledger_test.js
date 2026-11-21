@@ -166,6 +166,57 @@ ok('end date: solar jobs after it are not listed', RE.solar.map(s => s.jn), ['90
 ok('end date: the balance is the lines added up', E.tally(RE).now, E.r2(RE.tx.reduce((a, t) => a + t.amt, 0)));
 ok('an end date after today is ignored', E.run(data, Object.assign({}, set, { end: '2027-06-30' }), '2026-11-20').ended, false);
 
+// ---- looking back a year: the older tax table, 2025 public holidays ----
+ok('pays before 1 July 2026 use the older table', E.withhold(1500, '2026-06-24'), Math.round(0.32 * 1500.99 - 176.5769));
+ok('pays from 1 July 2026 use the newer one', E.withhold(1500, '2026-07-01'), Math.round(0.32 * 1500.99 - 181.7319));
+ok('older table, under its threshold', E.withhold(360, '2025-08-06'), 0);
+ok('older table, 1,000 a week', E.withhold(1000, '2025-08-06'), Math.round(0.3227 * 1000.99 - 180.0385));
+ok('no pay day given means the current table', E.withhold(1500), E.withhold(1500, '2026-11-18'));
+ok('King\'s Birthday 2025 is in', hols.has('2025-10-06'), true);
+ok('Labour Day 2025 is in', hols.has('2025-05-05'), true);
+
+// ---- purchase orders: account suppliers, months an account page doesn't cover, and orders with no price ----
+const pd = {
+  from: '2025-03-01', invoices: [{ n: 'I1', d: '2025-09-10', st: 'Approved', ex: 1000, inc: 1100, cl: 'Builder', jn: '8100', tn: 'Solar install' }], times: [], stc: {},
+  sup: [{ sup: 'Tradezone', d: '2025-10-03', inc: 1100, ref: 'a' }, { sup: 'Tradezone', d: '2025-11-05', inc: 2200, ref: 'b' }],
+  pos: [
+    { no: '1', d: '2025-08-05', sup: 'HAYMANS ELECTRICAL', jn: '8001', ex: 100, st: 'PROCESSED' },
+    { no: '2', d: '2025-08-20', sup: 'Haymans Electrical', jn: '8002', ex: 200, st: 'PROCESSED' },
+    { no: '3', d: '2025-08-12', sup: 'TRADEZONE', jn: '', ex: 300, st: 'PROCESSED' },   // before the account page's first order: stands in
+    { no: '4', d: '2025-10-15', sup: 'TRADEZONE', jn: '', ex: 400, st: 'PROCESSED' },   // the account page has that month: left out
+    { no: '5', d: '2025-09-02', sup: 'CNW', jn: '', ex: 500, st: 'PROCESSED' },         // no CNW account page at all: stands in
+    { no: '6', d: '2025-09-09', sup: 'BUNNINGS', jn: '', ex: 50, st: 'PROCESSED' },     // paid on the day
+    { no: '7', d: '2025-09-15', sup: 'RAYSTECH', jn: '8100', ex: 0, st: 'IN_PROGRESS', li: '10x panels' },
+    { no: '8', d: '2025-09-16', sup: 'RAYSTECH', jn: '', ex: 0, st: 'IN_PROGRESS', li: '' },
+    { no: '9', d: '2025-09-17', sup: 'RAYSTECH', jn: '8200', ex: 0, st: 'IN_PROGRESS', li: '1x inverter' },
+    { no: '10', d: '2025-10-20', sup: 'TRADEZONE', jn: '', ex: 0, st: 'IN_PROGRESS' },  // unpriced, but the account page covers it
+    { no: '11', d: '2025-09-18', sup: 'RAYSTECH', jn: '', ex: 0, st: 'CANCELLED' },
+    { no: '12', d: '2025-06-18', sup: 'RAYSTECH', jn: '', ex: 0, st: 'IN_PROGRESS' },   // before the start
+  ],
+};
+const ps = { start: '2025-07-01', people: [], estimates: [] };
+const P0 = E.run(pd, ps, '2025-12-10'), lab = (R, re) => R.tx.filter(t => re.test(t.label));
+ok('account supplier: a month\'s orders are one payment', lab(P0, /haymans/i).map(t => [t.d, t.amt, t.kind]), [['2025-09-30', -330, 'sup']]);
+ok('own supplier before its account page starts: purchase orders stand in', lab(P0, /TRADEZONE account, August/).map(t => [t.d, t.amt]), [['2025-09-30', -330]]);
+ok('own supplier inside its account page: purchase order left out', P0.tx.some(t => t.amt == -440), false);
+ok('own supplier with no account page read: purchase orders stand in', lab(P0, /CNW account, September/).map(t => [t.d, t.amt]), [['2025-10-31', -550]]);
+ok('account page orders still counted', lab(P0, /Tradezone account, October/).map(t => t.amt), [-1100]);
+ok('everyone else is paid on the day', lab(P0, /BUNNINGS/).map(t => [t.d, t.amt, t.kind]), [['2025-09-09', -55, 'po']]);
+ok('orders with no price are listed, newest first', P0.gear.map(g => [g.key, g.how]), [['po9', 'need'], ['po8', 'need'], ['po7', 'need']]);
+ok('nothing is counted for them till a figure is set', P0.tx.some(t => t.kind == 'gear'), false);
+ok('the lines on the order ride along', P0.gear.find(g => g.key == 'po7').li, '10x panels');
+const P1 = E.run(pd, Object.assign({}, ps, { gear: { po7: { amt: 1000, why: 'ten panels' }, po8: { none: true } } }), '2025-12-10');
+ok('a figure on an order: paid on its day with GST', P1.tx.filter(t => t.kind == 'gear').map(t => [t.d, t.amt, t.tag, t.sub]), [['2025-09-15', -1100, 'set', 'ten panels']]);
+ok('figure set and nothing to pay are sorted, one still waiting', P1.gear.map(g => [g.key, g.how]), [['po9', 'need'], ['po8', 'none'], ['po7', 'set']]);
+const gq = R => R.tx.filter(t => t.kind == 'gst' && t.d == '2025-10-28').reduce((a, t) => a + t.amt, 0);
+ok('the GST on it comes back with the BAS', E.r2(gq(P1) - gq(P0)), 100);
+const P2 = E.run(pd, Object.assign({}, ps, { gear: { 8100: { amt: 2000 }, 8300: { amt: 500, d: '2025-11-03', why: 'off the pallet' }, 8400: { amt: 900 } } }), '2025-12-10');
+ok('a figure for the job covers its orders', P2.gear.map(g => [g.key, g.how, g.d]).filter(g => g[1] != 'need'), [['8300', 'set', '2025-11-03'], ['8100', 'set', '2025-09-15']]);
+ok('job figures: counted once each, on the order\'s day or the day given', P2.tx.filter(t => t.kind == 'gear').map(t => [t.d, t.amt]), [['2025-09-15', -2200], ['2025-11-03', -550]]);
+ok('a job figure with no order, job or date has nowhere to land', P2.gear.some(g => g.key == '8400'), false);
+ok('unpriced gear is not hard data', E.tally(P1, t => t.tag == 'data').rows.some(t => t.kind == 'gear'), false);
+ok('balance still adds up with gear in', E.tally(P1).end, E.r2(P1.tx.reduce((a, t) => a + t.amt, 0)));
+
 // ---- the balance ----
 const A = E.tally(R), Dn = E.tally(R, t => t.tag == 'data');
 ok('balance is the lines added up', A.end, E.r2(R.tx.reduce((a, t) => a + t.amt, 0)));

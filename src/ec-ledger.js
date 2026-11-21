@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EC Ledger
 // @namespace    ec
-// @version      0.11
+// @version      0.12
 // @description  A pretend bank account on the AroFlo home page: invoices in, supplier accounts, pays, tax and estimated running costs out, replayed from the start date every run. Read only on AroFlo, Tradezone and CNW. Names and pay figures stay on this device.
 // @match        https://office.aroflo.com/ims/Site/Home/*
 // @grant        GM_xmlhttpRequest
@@ -51,13 +51,16 @@
     const draft = st => /in_progress|pending/i.test(st || ''); // an invoice still being written or waiting on approval hasn't gone out
 
     // Queensland wide public holidays. Show day and anything local goes in Settings (extra days off).
-    const HOLS = ['2026-01-01', '2026-01-26', '2026-04-03', '2026-04-04', '2026-04-05', '2026-04-06', '2026-04-25', '2026-05-04', '2026-10-05', '2026-12-25', '2026-12-26', '2026-12-28',
+    const HOLS = ['2025-01-01', '2025-01-27', '2025-04-18', '2025-04-19', '2025-04-20', '2025-04-21', '2025-04-25', '2025-05-05', '2025-10-06', '2025-12-25', '2025-12-26',
+      '2026-01-01', '2026-01-26', '2026-04-03', '2026-04-04', '2026-04-05', '2026-04-06', '2026-04-25', '2026-05-04', '2026-10-05', '2026-12-25', '2026-12-26', '2026-12-28',
       '2027-01-01', '2027-01-26', '2027-03-26', '2027-03-27', '2027-03-28', '2027-03-29', '2027-04-25', '2027-04-26', '2027-05-03', '2027-10-04', '2027-12-25', '2027-12-26', '2027-12-27', '2027-12-28'];
 
-    // The ATO's weekly withholding formula for someone claiming the tax free threshold (scale 2, payments from 1 July 2026):
+    // The ATO's weekly withholding formula for someone claiming the tax free threshold (scale 2):
     // y = a * x - b, where x is the week's pay with cents dropped plus 99 cents. [earnings under, a, b]
+    // One table for pays from 1 July 2026, and the one before it (1 July 2024 to 30 June 2026) for looking back.
     const SCALE2 = [[362, 0, 0], [538, 0.15, 54.3462], [673, 0.25, 108.2135], [721, 0.17, 54.3473], [865, 0.179, 60.8377], [1282, 0.3227, 185.1935], [2596, 0.32, 181.7319], [3653, 0.39, 363.4627], [Infinity, 0.47, 655.7704]];
-    const withhold = gross => { const x = Math.floor(gross) + 0.99, row = SCALE2.find(r => x < r[0]); return Math.max(0, Math.round(row[1] * x - row[2])); };
+    const SCALE2_OLD = [[361, 0, 0], [500, 0.16, 57.8462], [625, 0.26, 107.8462], [721, 0.18, 57.8462], [865, 0.189, 64.3365], [1282, 0.3227, 180.0385], [2596, 0.32, 176.5769], [3653, 0.39, 358.3077], [Infinity, 0.47, 650.6154]];
+    const withhold = (gross, payDay) => { const x = Math.floor(gross) + 0.99, row = (payDay && payDay < '2026-07-01' ? SCALE2_OLD : SCALE2).find(r => x < r[0]); return Math.max(0, Math.round(row[1] * x - row[2])); };
 
     // The start of the financial year today sits in, and what a fresh install starts with. The estimates are guesses to edit.
     const fyStart = today => (+today.slice(5, 7) >= 7 ? +today.slice(0, 4) : +today.slice(0, 4) - 1) + '-07-01';
@@ -65,6 +68,7 @@
       v: 1, start: fyStart(today), end: '', open: 0, terms: 14, clientTerms: [], superRate: 12, stcDelay: 2, horizon: 42,
       people: [], // { name, type: 'hourly' or 'salary', rate (an hour) or weekly (a week), from, to }
       ownSup: 'trade\\s?zone|cnw', // suppliers read off their own account pages, so their AroFlo purchase orders are left out
+      acctSup: 'haymans|polyaire', // other suppliers on a monthly account: a month's purchase orders are paid at the end of the next month
       estimates: [
         { name: 'Ute finance', kind: 'fixed', amt: 1420, per: 'month', gst: false },
         { name: 'Van finance (2 vans)', kind: 'fixed', amt: 2350, per: 'month', gst: false },
@@ -78,6 +82,7 @@
         { name: 'Accounts software, phones, accountant', kind: 'fixed', amt: 1000, per: 'month', gst: true },
       ],
       extraHols: [], stc: {}, // stc: { jobNumber: { amt } or { none: true } }, typed in for solar jobs with no STC line in AroFlo
+      gear: {}, // gear on purchase orders with no price in AroFlo: { 'po' + order number: { amt } or { none: true } }, or { jobNumber: { amt, d } } for a whole job. Ex GST.
     });
 
     // hours by person and day, off the timesheet lines ({ who, s, e } with s and e as local 'YYYY-MM-DDTHH:MM:SS')
@@ -116,7 +121,7 @@
         out.ord = r2(ord + top); out.top = r2(top); out.ot = r2(otEq);
         base = rate * (ord + top); out.gross = r2(base + rate * otEq);
       }
-      out.tax = Math.min(withhold(out.gross), out.gross); out.net = r2(out.gross - out.tax); out.sup = r2(base * superRate / 100);
+      out.tax = Math.min(withhold(out.gross, out.pay), out.gross); out.net = r2(out.gross - out.tax); out.sup = r2(base * superRate / 100);
       return out;
     }
 
@@ -150,11 +155,12 @@
       // ---- STC money: 2 days after the last day on the job. From AroFlo's STC line, or the figure typed in for that job ----
       const lastOn = {};
       (data.times || []).forEach(t => { if (!t.jn) return; const d = String(t.s).slice(0, 10); (lastOn[t.jn] = lastOn[t.jn] || []).push(d); });
+      const dayOf = j => { const days = (lastOn[j.jn] || []).filter(d => d <= add(j.last, 3)).sort(); return days.length ? days[days.length - 1] : j.first; };
       const solar = [];
       Object.values(jobs).forEach(j => {
         const line = (data.stc || {})[j.jn], mine = (S.stc || {})[j.jn];
         if (!line && !mine && !/solar|\bpv\b|inverter|\bstcs?\b/i.test(j.text)) return;
-        const days = (lastOn[j.jn] || []).filter(d => d <= add(j.last, 3)).sort(), jobDay = days.length ? days[days.length - 1] : j.first;
+        const jobDay = dayOf(j);
         const how = mine ? (mine.none ? 'none' : 'set') : line ? 'line' : 'need';
         const amt = how == 'set' ? Math.abs(+mine.amt || 0) : how == 'line' ? Math.abs(+line.amt || 0) : 0, d = add(jobDay, +S.stcDelay || 0);
         if (d < S.start || d > end) return; // the read goes back before the start, but a job only belongs here when its STC money lands inside the period
@@ -163,13 +169,47 @@
       });
 
       // ---- supplier accounts: a month's orders are paid on the last weekday of the next month ----
-      const supM = {};
-      (data.sup || []).forEach(o => { const inc = +o.inc || 0; if (!inc || !o.d) return; const ym = o.d.slice(0, 7), k = o.sup + '|' + ym, m = supM[k] = supM[k] || { sup: o.sup, ym, inc: 0, n: 0 }; m.inc += inc; m.n++; });
+      const canon = x => String(x || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+      const supM = {}, oldest = {};
+      (data.sup || []).forEach(o => { const inc = +o.inc || 0; if (!inc || !o.d) return; const c = canon(o.sup), ym = o.d.slice(0, 7), k = c + '|' + ym, m = supM[k] = supM[k] || { sup: o.sup, ym, inc: 0, n: 0 }; m.inc += inc; m.n++; if (!oldest[c] || ym < oldest[c]) oldest[c] = ym; });
       Object.values(supM).forEach(m => { const d = prevBiz(eom(addMonth(m.ym, 1))); push(d, -m.inc, 'data', 'sup', m.sup + ' account, ' + mName(m.ym) + ' (' + m.n + ' orders)', { n: m.n, pre: m.ym < startYm }); addGst('data', d, -m.inc / 11); });
 
-      // ---- other suppliers: AroFlo's purchase orders, paid on the day, GST added ----
-      let own; try { own = new RegExp(S.ownSup || 'trade\\s?zone|cnw', 'i'); } catch (e) { own = /trade\s?zone|cnw/i; }
-      (data.pos || []).forEach(o => { const ex = +o.ex || 0; if (!ex || !o.d || dead(o.st) || own.test(o.sup || '')) return; push(o.d, -ex * 1.1, 'data', 'po', (o.sup || 'Supplier') + (o.no ? ', PO ' + o.no : ''), { ref: o.jn || '' }); addGst('data', o.d, -ex * 0.1); });
+      // ---- AroFlo's purchase orders, GST added. Tradezone and CNW are left to their account pages above, except for months
+      // those pages don't cover (signed out, or before their first order there), where the purchase orders stand in.
+      // Suppliers on a monthly account are paid like one, everyone else on the day. ----
+      const rx = (t, d) => { try { return new RegExp(t || d, 'i'); } catch (e) { return new RegExp(d, 'i'); } };
+      const own = rx(S.ownSup, 'trade\\s?zone|cnw'), acct = rx(S.acctSup, 'haymans|polyaire');
+      const poM = {}, zero = [];
+      (data.pos || []).forEach(o => {
+        if (!o.d || dead(o.st)) return;
+        const ex = +o.ex || 0, sup = o.sup || 'Supplier', c = canon(sup), ym = o.d.slice(0, 7), isOwn = own.test(sup);
+        if (isOwn) { const h = Object.keys(oldest).find(k => c.includes(k) || k.includes(c)); if (h && ym >= oldest[h]) return; }
+        if (!ex) { zero.push(o); return; }
+        if (isOwn || acct.test(sup)) { const k = c + '|' + ym, m = poM[k] = poM[k] || { sup, ym, ex: 0, n: 0 }; m.ex += ex; m.n++; return; }
+        push(o.d, -ex * 1.1, 'data', 'po', sup + (o.no ? ', PO ' + o.no : ''), { ref: o.jn || '' }); addGst('data', o.d, -ex * 0.1);
+      });
+      Object.values(poM).forEach(m => { const d = prevBiz(eom(addMonth(m.ym, 1))); push(d, -m.ex * 1.1, 'data', 'sup', m.sup + ' account, ' + mName(m.ym) + ' (' + m.n + ' purchase orders)', { n: m.n, pre: m.ym < startYm }); addGst('data', d, -m.ex * 0.1); });
+
+      // ---- gear on a purchase order with no price in AroFlo: nothing can be counted for it till a figure is set (ex GST),
+      // for the order ('po' and its number) or for a whole job (the job number, which then covers that job's orders).
+      // Paid on the order's day, GST added. ----
+      const G = S.gear || {}, gear = [], byJob = {};
+      const gPush = (d, a, label, ref, why) => { push(d, -a * 1.1, 'set', 'gear', label, { ref: ref || '', sub: why || '' }); addGst('est', d, -a * 0.1); };
+      zero.forEach(o => {
+        if (o.jn && G[o.jn]) { (byJob[o.jn] = byJob[o.jn] || []).push(o); return; }
+        if (o.d < S.start || o.d > asAt) return;
+        const key = 'po' + o.no, mine = G[key], how = mine ? (mine.none ? 'none' : 'set') : 'need', a = how == 'set' ? Math.abs(+mine.amt || 0) : 0;
+        gear.push({ key, no: o.no, jn: o.jn || '', sup: o.sup || '', d: o.d, how, amt: a, li: o.li || '' });
+        if (a) gPush(o.d, a, (o.sup || 'Supplier') + ', PO ' + o.no + ' (no price in AroFlo)', o.jn, mine.why);
+      });
+      Object.keys(G).forEach(k => {
+        const g = G[k]; if (!g || !/^\d{3,6}$/.test(k)) return;
+        const pos = byJob[k] || [], j = jobs[k], d = /^\d{4}-\d{2}-\d{2}$/.test(g.d || '') ? g.d : pos.length ? pos.map(o => o.d).sort()[0] : j ? dayOf(j) : '';
+        if (!d || d < S.start || d > asAt) return;
+        const how = g.none ? 'none' : 'set', a = how == 'set' ? Math.abs(+g.amt || 0) : 0;
+        gear.push({ key: k, no: pos.map(o => o.no).join(', '), jn: k, sup: (pos[0] && pos[0].sup) || '', d, how, amt: a, li: pos.map(o => o.li).filter(Boolean).join('; ') });
+        if (a) gPush(d, a, 'Gear for job ' + k + ' (no price in AroFlo)', k, g.why);
+      });
 
       // ---- pays: every Wednesday for the Wednesday to Tuesday before it, super the same day ----
       const H = hoursByDay(data.times), people = (S.people || []).filter(p => p && p.name);
@@ -217,7 +257,7 @@
       Object.keys(H).forEach(n => { if (names.has(n)) return; const h = Object.keys(H[n]).filter(d => d >= S.start && d <= asAt).reduce((a, d) => a + H[n][d], 0); if (h > 0) others[n] = r2(h); });
       // what's inside the period, for the note under the Overview
       const real = out.filter(t => !t.proj), counts = { inv: real.filter(t => t.kind == 'inv').length, po: real.filter(t => t.kind == 'po').length, sup: real.filter(t => t.kind == 'sup').reduce((a, t) => a + (t.n || 0), 0), times: (data.times || []).filter(t => { const d = String(t.s).slice(0, 10); return d >= S.start && d <= asAt; }).length };
-      return { set: S, today: asAt, ended, counts, end, from, tx: out, wageWeeks: wageWeeks.filter(w => w.pay >= S.start && w.pay <= end), solar: solar.sort((a, b) => (a.how == 'need') != (b.how == 'need') ? (a.how == 'need' ? -1 : 1) : a.how == 'need' ? b.inc - a.inc : a.d < b.d ? 1 : -1), others, atoLater, status, drafts };
+      return { set: S, today: asAt, ended, counts, end, from, tx: out, wageWeeks: wageWeeks.filter(w => w.pay >= S.start && w.pay <= end), solar: solar.sort((a, b) => (a.how == 'need') != (b.how == 'need') ? (a.how == 'need' ? -1 : 1) : a.how == 'need' ? b.inc - a.inc : a.d < b.d ? 1 : -1), others, atoLater, status, drafts, gear: gear.sort((a, b) => (a.how == 'need') != (b.how == 'need') ? (a.how == 'need' ? -1 : 1) : a.d < b.d ? 1 : -1) };
     }
 
     // The running balance and headline numbers for a set of lines: all of them, or only the ones a filter keeps.
@@ -306,13 +346,28 @@
     }
     // purchase orders: every page, kept from the start on
     try {
-      const poPage = n => af('/cf-api/purchaseorders?limit=100&page=' + n), p1 = await poPage(1), pc = Math.min((p1.page && p1.page.count) || 1, 80);
+      // status=ALL, or AroFlo only hands over the ones still in progress and every processed order goes missing. Newest first,
+      // so it stops three pages after it runs past the start.
+      let all = '&status=ALL';
+      const poPage = n => af('/cf-api/purchaseorders?limit=100' + all + '&page=' + n);
+      let p1 = await poPage(1);
+      if (!(p1.items || []).length) { all = ''; p1 = await poPage(1); out.warn.push('Purchase orders: AroFlo only gave the ones still in progress'); }
+      const pc = Math.min((p1.page && p1.page.count) || 1, 120); let olderP = 0;
       for (let n = 1; n <= pc; n++) {
-        say('AroFlo: purchase orders, page ' + n + ' of ' + pc + '…');
-        const j = n == 1 ? p1 : await poPage(n);
-        (j.items || []).forEach(o => { const d = String(o.purchaseDate || o.timestampCreated || '').slice(0, 10); if (!d || d < from) return; out.pos.push({ no: String(o.referenceNumber || o.orderNumber || ''), d, sup: clean(o.supplierName || '').slice(0, 50), jn: String(o.jobNumber || ''), ex: +(o.totalAmountEx || 0), st: o.status || '' }); });
+        say('AroFlo: purchase orders, page ' + n + '…');
+        const j = n == 1 ? p1 : await poPage(n); let any = false;
+        (j.items || []).forEach(o => { const d = String(o.purchaseDate || o.timestampCreated || '').slice(0, 10); if (!d || d < from) return; any = true; out.pos.push({ no: String(o.referenceNumber || o.orderNumber || ''), d, sup: clean(o.supplierName || '').slice(0, 50), jn: String(o.jobNumber || ''), ex: +(o.totalAmountEx || 0), st: o.status || '', id: o.id || '' }); });
         if (!(j.items || []).length) break;
+        if (any) olderP = 0; else if (++olderP >= 3) break;
       }
+      // an order with no price: its lines are read so there's something to price it from
+      const blank = out.pos.filter(o => !o.ex && o.id && !/void|cancel|delet/i.test(o.st)); let lz = 0;
+      await pool(blank, 4, async o => {
+        const j = await af('/cf-api/purchaseorders/' + o.id + '/lineitems?limit=100');
+        o.li = (j.items || []).map(l => clean(l.name) ? (+l.quantityOrdered || 0) + 'x ' + clean(l.name) : '').filter(Boolean).join('; ').slice(0, 240);
+        say('AroFlo: purchase orders with no price, ' + (++lz) + ' of ' + blank.length + '…');
+      });
+      out.pos.forEach(o => { delete o.id; delete o.err; });
     } catch (e) { out.warn.push('Purchase orders: ' + e.message); }
     // timesheets: the calendar's own feed hands them over when asked, job time and office time, a month a read.
     // The ask to show timesheets only rides on these reads, the saved calendar view isn't touched.
@@ -405,7 +460,7 @@
   // ---------- what's kept on this device: the settings (names and pay figures included) and the last read ----------
   const SETKEY = 'ecLedgerSet', DATAKEY = 'ecLedgerData';
   let set = Object.assign(E.DEFAULTS(todayIso()), GM_getValue(SETKEY, null) || {}), data = GM_getValue(DATAKEY, null), res = null;
-  let tab = 'over', hard = false, ahead = false, more = 150, busy = false, box, note = '', loaded = '', sorted = false;
+  let tab = 'over', hard = false, ahead = false, more = 150, busy = false, box, note = '', loaded = '', sorted = false, gsorted = false;
   const VER = (() => { try { return GM_info.script.version || ''; } catch (e) { return ''; } })(); // shown in the title, so it's clear which copy is installed
   const saveSet = () => { try { GM_setValue(SETKEY, set); } catch (e) {} };
   // Another AroFlo tab (or an older copy still open in one) can have saved since this page loaded. The whole lot is saved in one
@@ -472,8 +527,8 @@
 
   const say = m => { note = m || ''; const el = box && box.querySelector('.msg'); if (el) el.textContent = note; };
   const amt = (n, f) => `<span class="${n < 0 ? 'neg' : 'pos'}">${(f || $2)(n)}</span>`;
-  const TAG = { data: 'data', set: 'your pay', est: 'estimate' };
-  const KIND = { inv: 'Invoices', stc: 'STCs', sup: 'Tradezone and CNW accounts', po: 'Other suppliers', wage: 'Pays', super: 'Super', payg: 'Tax held from pays', gst: 'GST', est: 'Estimated running costs' };
+  const TAG = { data: 'data', set: 'your figures', est: 'estimate' };
+  const KIND = { inv: 'Invoices', stc: 'STCs', sup: 'Supplier accounts', po: 'Other suppliers, paid on the day', gear: 'Gear with no price in AroFlo (your figures)', wage: 'Pays', super: 'Super', payg: 'Tax held from pays', gst: 'GST', est: 'Estimated running costs' };
 
   // the balance over time as a stepped line, dashed once it's past today
   function chart(T) {
@@ -505,6 +560,11 @@ ${res.ended ? '' : `<line x1="${X(td).toFixed(1)}" x2="${X(td).toFixed(1)}" y1="
     need.forEach(x => L.push(row([x.jn, x.name, x.jobDay, $2(x.inc)])));
     L.push('', '== SOLAR JOBS ALREADY SORTED (' + done.length + ') ==', 'JN | job | last day on the job | invoiced | how | STC amount | note');
     done.forEach(x => L.push(row([x.jn, x.name, x.jobDay, $2(x.inc), x.how == 'line' ? 'AroFlo STC line' : x.how == 'set' ? 'figure set' : 'marked no STCs', x.how == 'none' ? '' : $2(x.amt), ((set.stc || {})[x.jn] || {}).why || ''])));
+    const gNeed = (res.gear || []).filter(x => x.how == 'need'), gDone = (res.gear || []).filter(x => x.how != 'need');
+    L.push('', '== PURCHASE ORDERS WITH NO PRICE IN AROFLO (' + gNeed.length + ', counted as $0 till a figure is set, ex GST) ==', 'key | supplier | date | JN | lines on the order');
+    gNeed.forEach(x => L.push(row([x.key, x.sup, x.d, x.jn, x.li || 'no lines'])));
+    L.push('', '== UNPRICED GEAR ALREADY SORTED (' + gDone.length + ') ==', 'key | supplier | date | JN | how | figure ex GST | note');
+    gDone.forEach(x => L.push(row([x.key, x.sup, x.d, x.jn, x.how == 'set' ? 'figure set' : 'marked nothing to pay', x.how == 'set' ? $2(x.amt) : '', ((set.gear || {})[x.key] || {}).why || ''])));
     L.push('', '== INVOICES NOT COUNTED: still in progress or waiting on approval (' + res.drafts.n + ') ==', 'invoice | JN | date | amount | status');
     res.drafts.list.forEach(x => L.push(row([x.n, x.jn, x.d, $2(x.inc), x.st])));
     const short = res.wageWeeks.filter(w => w.short);
@@ -530,6 +590,8 @@ ${res.ended ? '' : `<line x1="${X(td).toFixed(1)}" x2="${X(td).toFixed(1)}" y1="
     if (!(set.people || []).length) W.push('No one is on the pay list yet. Add people and their rates under Settings, they stay on this device.');
     const need = res.solar.filter(s => s.how == 'need').length;
     if (need) W.push(need + ' solar job' + (need > 1 ? 's have' : ' has') + ' no STC line in AroFlo, counted as $0 for now. Set the figures under Settings, Solar jobs.');
+    const gneed = (res.gear || []).filter(g => g.how == 'need').length;
+    if (gneed) W.push(gneed + ' purchase order' + (gneed > 1 ? 's have' : ' has') + ' no price in AroFlo, counted as $0 for now. Set the figures under Settings, Purchase orders with no price.');
     const shortW = res.wageWeeks.filter(w => w.short).length;
     if (shortW) W.push(shortW + ' pay week' + (shortW > 1 ? 's' : '') + ' had fewer hours logged than the guarantee, so the pay for those is a floor, not what was worked (see Pays).');
     const oth = Object.keys(res.others);
@@ -592,17 +654,22 @@ ${e.kind == 'fuel' ? inp('estimates.' + i + '.veh', e.veh, 's', 'number') + '<sp
 <label><span>GST in it</span> ${chk('estimates.' + i + '.gst', e.gst)}</label><button class="btn rm" data-act="rm" data-list="estimates" data-i="${i}" title="Remove">&times;</button></div>`).join('');
     const srow = s => { const m = (set.stc || {})[s.jn] || {}; return `<div class="f"><div class="g"><b>${esc(s.jn)}</b> ${esc(s.name).slice(0, 60)}<br><span>${s.how == 'line' ? 'AroFlo STC line: ' + $2(s.amt) : s.how == 'set' ? 'Your figure' : s.how == 'none' ? 'Marked no STCs' : 'No STC line in AroFlo, needs a figure'}, job day ${dNice(s.jobDay)}, invoiced ${$0(s.inc)}</span>${m.why ? `<br><span>Note: ${esc(m.why)}</span>` : ''}</div>
 <input class="s" type="number" step="any" inputmode="decimal" data-stc="${esc(s.jn)}" value="${m.amt == null ? '' : esc(m.amt)}" placeholder="$"><label><span>No STCs</span> <input type="checkbox" data-stcnone="${esc(s.jn)}"${m.none ? ' checked' : ''}></label></div>`; };
+    const grow = g => { const m = (set.gear || {})[g.key] || {}; return `<div class="f"><div class="g"><b>${g.no ? 'PO ' + esc(g.no) : 'Job ' + esc(g.jn)}</b> ${esc(g.sup)}${g.no && g.jn ? ', job ' + esc(g.jn) : ''}, ${g.d ? dNice(g.d) + ' ' + g.d.slice(0, 4) : ''}<br><span>${esc(g.li || 'Nothing listed on the order')}</span>${m.why ? `<br><span>Note: ${esc(m.why)}</span>` : ''}</div>
+<input class="s" type="number" step="any" inputmode="decimal" data-gear="${esc(g.key)}" value="${m.amt == null ? '' : esc(m.amt)}" placeholder="$ ex GST"><label><span>Nothing to pay</span> <input type="checkbox" data-gearnone="${esc(g.key)}"${m.none ? ' checked' : ''}></label></div>`; };
+    const gNeed = res ? (res.gear || []).filter(x => x.how == 'need') : [], gDone = res ? (res.gear || []).filter(x => x.how != 'need') : [];
     const sNeed = res ? res.solar.filter(x => x.how == 'need') : [], sDone = res ? res.solar.filter(x => x.how != 'need') : [], cnt = h => sDone.filter(x => x.how == h).length;
     return `<div class="card"><h4>The basics</h4>
 <div class="f"><span>Start date</span>${inp('start', set.start, 'm', 'date')}<span>End date</span>${inp('end', set.end, 'm', 'date')}<span>blank runs to today</span></div>
 <div class="f"><span>Opening balance</span>${inp('open', set.open, 's', 'number')}<span>what was in the bank on the start date, 0 if you don't know</span></div>
 <div class="f"><span>Invoices paid after</span>${inp('terms', set.terms, 's', 'number')}<span>days, unless a client below says different</span></div>
-<div class="f"><span>Super</span>${inp('superRate', set.superRate, 's', 'number')}<span>%</span><span>STC money lands</span>${inp('stcDelay', set.stcDelay, 's', 'number')}<span>days after the job</span><span>Look ahead</span>${inp('horizon', set.horizon, 's', 'number')}<span>days</span></div></div>
+<div class="f"><span>Super</span>${inp('superRate', set.superRate, 's', 'number')}<span>%</span><span>STC money lands</span>${inp('stcDelay', set.stcDelay, 's', 'number')}<span>days after the job</span><span>Look ahead</span>${inp('horizon', set.horizon, 's', 'number')}<span>days</span></div>
+<div class="f"><span>Suppliers on a monthly account</span>${inp('acctSup', set.acctSup, 'g', 'text', 'haymans|polyaire')}<span>part of each name with | between. Their AroFlo purchase orders are paid at the end of the next month, everyone else's on the day.</span></div></div>
 <div class="card paylist"><h4>Pay list</h4>${loaded ? `<div class="warn" style="background:#ecfdf5;border-color:#a7f3d0">${esc(loaded)}</div>` : ''}<p class="hint">Names and pay figures stay in this device's Tampermonkey. They are never in the script or sent anywhere.</p>${people}<div class="f"><button class="btn" data-act="add" data-list="people">Add a person</button>${names.length ? '' : '<span>Hit Refresh first so the names off the timesheets show here.</span>'}</div></div>
 <div class="card"><h4>Clients on different terms</h4>${terms}<div class="f"><button class="btn" data-act="add" data-list="clientTerms">Add a client</button></div></div>
 <div class="card"><h4>Estimated running costs</h4><p class="hint">Guesses for what can't be read from here. Untick one to leave it out. Amounts are what leaves the bank.</p>${est}<div class="f"><button class="btn" data-act="add" data-list="estimates">Add an estimate</button></div></div>
 <div class="card"><h4>Extra days off</h4><p class="hint">Queensland public holidays are built in. Add show day or anything local, as dates like 2026-08-12, with commas between.</p><div class="f"><input class="g" type="text" data-hols="1" value="${esc((set.extraHols || []).join(', '))}"></div></div>
 ${res ? `<div class="card"><h4>Solar jobs</h4><p class="hint">Only jobs with no STC line in AroFlo are listed here, biggest first, counted as $0 till you type a figure or tick No STCs (quotes, isos and reports). It's remembered for every refresh.</p>${sNeed.map(srow).join('') || '<div class="f">Nothing waiting on a figure.</div>'}${sDone.length ? `<div class="f"><button class="btn g2" data-act="sorted">${sorted ? 'Hide' : 'Show'} the ${sDone.length} already sorted</button><span>${[cnt('line') ? cnt('line') + ' off AroFlo STC lines' : '', cnt('set') ? cnt('set') + ' with your figure' : '', cnt('none') ? cnt('none') + ' marked no STCs' : ''].filter(Boolean).join(', ')}</span></div>${sorted ? '<p class="hint">A figure typed in here is used in place of the AroFlo line.</p>' + sDone.map(srow).join('') : ''}` : ''}</div>` : ''}
+${res ? `<div class="card"><h4>Purchase orders with no price</h4><p class="hint">Gear ordered on an AroFlo purchase order with no cost on it, so nothing leaves the account for it till you type what it cost (ex GST, the GST is added) or tick Nothing to pay (an empty or doubled up order). Orders to Tradezone and CNW only show for months their account pages weren't read.</p>${gNeed.map(grow).join('') || '<div class="f">Nothing waiting on a figure.</div>'}${gDone.length ? `<div class="f"><button class="btn g2" data-act="gsorted">${gsorted ? 'Hide' : 'Show'} the ${gDone.length} already sorted</button><span>${$0(gDone.reduce((a, x) => a + x.amt, 0))} ex GST set</span></div>${gsorted ? gDone.map(grow).join('') : ''}` : ''}</div>` : ''}
 <div class="card"><h4>Move the settings to another device</h4><p class="hint">Copy the code here, then paste it in the same box on the other device and tap Load. It holds the pay list, so treat it like the figures themselves. A full code replaces the settings on that device. An add-on code only adds what's in it.</p><textarea class="code" placeholder="Paste a settings code here to load it"></textarea><div class="f"><button class="btn" data-act="export">Copy my settings code</button><button class="btn g2" data-act="import">Load the code in the box</button></div><div class="warn lerr" style="display:none"></div></div>`;
   }
 
@@ -650,6 +717,7 @@ ${res ? `<div class="card"><h4>Solar jobs</h4><p class="hint">Only jobs with no 
       if (a == 'add' || a == 'rm' || a == 'import' || a == 'export') sync();
       if (a == 'more') { more += 300; draw(); }
       if (a == 'sorted') { sorted = !sorted; draw(); }
+      if (a == 'gsorted') { gsorted = !gsorted; draw(); }
       if (a == 'log') {
         // the text goes in a box first, so it's there to copy by hand whatever the clipboard does
         const text = issuesLog(), ta = box.querySelector('.logbox');
@@ -676,7 +744,13 @@ ${res ? `<div class="card"><h4>Solar jobs</h4><p class="hint">Only jobs with no 
             if (s.add.set && typeof s.add.set == 'object') { // the plain number settings: days to pay, opening balance, super, STC delay, look ahead
               const names = { terms: 'days to pay', open: 'opening balance', superRate: 'super', stcDelay: 'STC delay', horizon: 'look ahead' }, got = [];
               Object.keys(names).forEach(k => { const v = s.add.set[k]; if (v === undefined || v === '' || !isFinite(+v) || +v < 0) return; set[k] = +v; got.push(names[k] + ' ' + (+v)); });
+              ['start', 'end'].forEach(k => { const v = s.add.set[k]; if (typeof v != 'string' || !(/^\d{4}-\d{2}-\d{2}$/.test(v) || (k == 'end' && v === ''))) return; set[k] = v; got.push(k + ' date ' + (v || 'cleared')); });
               if (got.length) done.push(got.join(', '));
+            }
+            if (s.add.gear && typeof s.add.gear == 'object') { // figures for gear with no price in AroFlo: { 'po4279': { amt } or { none: true }, or a job number: { amt, d } }
+              let n = 0; set.gear = set.gear || {};
+              Object.keys(s.add.gear).forEach(k => { const v = s.add.gear[k]; if (!/^(po\w{1,12}|\d{3,6})$/.test(k) || !v || typeof v != 'object') return; const more = Object.assign({}, typeof v.why == 'string' && v.why ? { why: v.why.slice(0, 120) } : {}, /^\d{4}-\d{2}-\d{2}$/.test(v.d || '') ? { d: v.d } : {}); if (v.none === true) set.gear[k] = Object.assign({ none: true }, more); else if (isFinite(+v.amt) && +v.amt >= 0) set.gear[k] = Object.assign({ amt: +v.amt }, more); else return; n++; });
+              if (n) done.push(n + ' lot' + (n > 1 ? 's' : '') + ' of unpriced gear set');
             }
             if (s.add.stc && typeof s.add.stc == 'object') { // STC figures for a batch of jobs: { jobNumber: { amt } or { none: true } }
               let n = 0; set.stc = set.stc || {};
@@ -706,6 +780,8 @@ ${res ? `<div class="card"><h4>Solar jobs</h4><p class="hint">Only jobs with no 
       if (el.dataset.k) { try { put(el.dataset.k, el); } catch (er) { say('That row has changed in another tab. Have another go.'); return draw(); } }
       else if (el.dataset.hols) set.extraHols = el.value.split(/[,\s]+/).filter(x => /^\d{4}-\d{2}-\d{2}$/.test(x));
       else if (el.dataset.stc) { set.stc = set.stc || {}; if (el.value === '') delete set.stc[el.dataset.stc]; else set.stc[el.dataset.stc] = { amt: +el.value }; }
+      else if (el.dataset.gear) { set.gear = set.gear || {}; const o = set.gear[el.dataset.gear] || {}, keep = Object.assign({}, o.d ? { d: o.d } : {}, o.why ? { why: o.why } : {}); if (el.value === '') delete set.gear[el.dataset.gear]; else set.gear[el.dataset.gear] = Object.assign({ amt: +el.value }, keep); }
+      else if (el.dataset.gearnone) { set.gear = set.gear || {}; if (el.checked) set.gear[el.dataset.gearnone] = { none: true }; else delete set.gear[el.dataset.gearnone]; }
       else if (el.dataset.stcnone) { set.stc = set.stc || {}; if (el.checked) set.stc[el.dataset.stcnone] = { none: true }; else delete set.stc[el.dataset.stcnone]; }
       else return;
       saveSet(); calc(); say('Saved.'); draw();
