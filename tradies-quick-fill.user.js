@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Tradies Web quick fill (Ambrose)
 // @namespace    ec
-// @version      1.10
-// @description  One-click site sign-in (PSEA NA first 4, Yes rest, confirm, Done, your saved signature, Sign In) and electrical report defaults (Met With Insured, Electrician, licence 76530). Never touches report Save or Submit.
+// @version      1.11
+// @description  One-click site sign-in (PSEA NA first 4, Yes rest, confirm, Done, your saved signature, Sign In) and electrical report defaults (Met With Insured, Electrician, licence 76530). Never touches report Save or Submit. On the TV, Ethan starts the sign-in from the phone remote page.
 // @match        https://tradies.ambrosebuilding.com.au/*
 // @grant        GM_getValue
 // @grant        GM_setValue
@@ -21,7 +21,7 @@
   // Live updates (23/10): Tampermonkey only checks for a new version every few hours. This checks the repo's latest commit every
   // 2 min (free when nothing's changed) and keeps the newest code here, so a push runs on the next page load. If the new code needs
   // a permission this install hasn't got, or this browser won't run it, the built in copy below runs like before.
-  const __ecName = "tradies-quick-fill", __ecVer = "1.10", __ecHave = new Set(["// @connect api.github.com", "// @connect raw.githubusercontent.com", "// @grant GM_deleteValue", "// @grant GM_getValue", "// @grant GM_listValues", "// @grant GM_setValue", "// @grant GM_xmlhttpRequest", "// @match https://tradies.ambrosebuilding.com.au/*", "// @run-at document-idle"]);
+  const __ecName = "tradies-quick-fill", __ecVer = "1.11", __ecHave = new Set(["// @connect api.github.com", "// @connect raw.githubusercontent.com", "// @grant GM_deleteValue", "// @grant GM_getValue", "// @grant GM_listValues", "// @grant GM_setValue", "// @grant GM_xmlhttpRequest", "// @match https://tradies.ambrosebuilding.com.au/*", "// @run-at document-idle"]);
   const __ecInfo0 = typeof GM_info != 'undefined' ? GM_info : null;
   const __ecSay = m => { try { console.log('[live update] ' + __ecName + ': ' + m); } catch (e) {} };
   const __ecCmp = (a, b) => { const x = String(a).split('.').map(Number), y = String(b).split('.').map(Number); for (let i = 0; i < Math.max(x.length, y.length); i++) { const d = (x[i] || 0) - (y[i] || 0); if (d) return d; } return 0; };
@@ -72,7 +72,7 @@
   }
   if (window.top === window.self) { __ecCheck(); setInterval(__ecCheck, 2 * 60e3 + 5000); }
   if (__ecLive()) return;
-  // ---------- the built in copy (src/tradies-quick-fill.js at 1.10) ----------
+  // ---------- the built in copy (src/tradies-quick-fill.js at 1.11) ----------
 
 // ---------- one off (18/11/2026): moves this device's saved data over from the old names. Take this block out once every device has run it ----------
 try {
@@ -86,7 +86,9 @@ try {
 
   const ORANGE = '#e8731a';
   const LICENCE_NO = '76530';
-  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  // on the TV the app times waits (its page timers crawl with the screen off), elsewhere it's a plain timer
+  const sleep = ms => typeof window.__ecSleep == 'function' ? window.__ecSleep(ms) : new Promise(r => setTimeout(r, ms));
+  const TV = window.__ecDevice === 'TV';
   const clean = s => String(s || '').replace(/\s+/g, ' ').trim();
   const vis = e => !!(e && (e.offsetParent || e.getClientRects().length));
   const PHONE = matchMedia('(pointer:coarse) and (max-width:820px)').matches;
@@ -101,6 +103,7 @@ try {
     }
     t.style.background = bad ? '#b3261e' : ORANGE;
     t.textContent = m;
+    window.__ecTqfLast = (bad ? 'stopped: ' : '') + m;
     clearTimeout(t._h);
     t._h = setTimeout(() => t.remove(), 9000);
   }
@@ -400,6 +403,15 @@ try {
     if (showRep !== repBtn.isConnected) showRep ? document.documentElement.append(repBtn) : repBtn.remove();
     if (onSafety) signBtn.textContent = loadSig() ? 'Sign in to site' : 'Sign in to site (save signature first)';
   };
+  // On the TV (22/11) there are no buttons on the page: Ethan starts the sign-in himself from the phone remote page,
+  // which calls this. Nothing else on the TV starts it.
+  if (TV) {
+    window.__ecTqf = {
+      signIn: async () => { window.__ecTqfLast = ''; try { await signIn(); } catch (e) { toast('Stopped: ' + e.message, true); } return window.__ecTqfLast || 'done'; },
+      hasSig: () => !!loadSig()
+    };
+    return;
+  }
   setInterval(() => { if (!document.hidden) sync(); }, 1000);
   sync();
 })();

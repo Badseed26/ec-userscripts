@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Tradies Web quick fill (Ambrose)
 // @namespace    ec
-// @version      1.10
-// @description  One-click site sign-in (PSEA NA first 4, Yes rest, confirm, Done, your saved signature, Sign In) and electrical report defaults (Met With Insured, Electrician, licence 76530). Never touches report Save or Submit.
+// @version      1.11
+// @description  One-click site sign-in (PSEA NA first 4, Yes rest, confirm, Done, your saved signature, Sign In) and electrical report defaults (Met With Insured, Electrician, licence 76530). Never touches report Save or Submit. On the TV, Ethan starts the sign-in from the phone remote page.
 // @match        https://tradies.ambrosebuilding.com.au/*
 // @grant        GM_getValue
 // @grant        GM_setValue
@@ -25,7 +25,9 @@ try {
 
   const ORANGE = '#e8731a';
   const LICENCE_NO = '76530';
-  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  // on the TV the app times waits (its page timers crawl with the screen off), elsewhere it's a plain timer
+  const sleep = ms => typeof window.__ecSleep == 'function' ? window.__ecSleep(ms) : new Promise(r => setTimeout(r, ms));
+  const TV = window.__ecDevice === 'TV';
   const clean = s => String(s || '').replace(/\s+/g, ' ').trim();
   const vis = e => !!(e && (e.offsetParent || e.getClientRects().length));
   const PHONE = matchMedia('(pointer:coarse) and (max-width:820px)').matches;
@@ -40,6 +42,7 @@ try {
     }
     t.style.background = bad ? '#b3261e' : ORANGE;
     t.textContent = m;
+    window.__ecTqfLast = (bad ? 'stopped: ' : '') + m;
     clearTimeout(t._h);
     t._h = setTimeout(() => t.remove(), 9000);
   }
@@ -339,6 +342,15 @@ try {
     if (showRep !== repBtn.isConnected) showRep ? document.documentElement.append(repBtn) : repBtn.remove();
     if (onSafety) signBtn.textContent = loadSig() ? 'Sign in to site' : 'Sign in to site (save signature first)';
   };
+  // On the TV (22/11) there are no buttons on the page: Ethan starts the sign-in himself from the phone remote page,
+  // which calls this. Nothing else on the TV starts it.
+  if (TV) {
+    window.__ecTqf = {
+      signIn: async () => { window.__ecTqfLast = ''; try { await signIn(); } catch (e) { toast('Stopped: ' + e.message, true); } return window.__ecTqfLast || 'done'; },
+      hasSig: () => !!loadSig()
+    };
+    return;
+  }
   setInterval(() => { if (!document.hidden) sync(); }, 1000);
   sync();
 })();
