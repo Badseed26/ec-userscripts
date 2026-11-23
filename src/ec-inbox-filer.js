@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EC Inbox Filer
 // @namespace    ec
-// @version      0.9.98
+// @version      0.9.99
 // @description  Watches the shared Outlook for builder POs, revised POs and Energex safety advice, reads them with Claude Sonnet and files them onto the right AroFlo task. Unmatched ones, dates to book and anything odd go to follow ups. Runs only in the two filer tabs (Outlook and AroFlo opened with #ec-filer).
 // @match        https://outlook.cloud.microsoft/*
 // @match        https://outlook.office.com/*
@@ -513,10 +513,14 @@ if (ON_MAIL) {
     return best ? { hdr: { authorization: 'Bearer ' + best.secret }, base: location.origin + '/owa/service.svc' } : null; };
   let svcN = 0;
   const olSvc = async (action, body) => { if (!/^(Find|Get)/.test(action)) throw new Error(action + ' isn\'t a read');
+    // straight after a page load Outlook hasn't made a mail call yet: give it up to 20 s before using the saved sign-in (23/11,
+    // the saved one's address gave "Failed to fetch" on the TV)
+    for (let i = 0; i < 40 && !svcAuth; i++) await sleep(500);
     const a = svcAuth || savedAuth(); if (!a) throw new Error('no Outlook sign-in to copy yet');
     const h = Object.assign({ 'content-type': 'application/json; charset=utf-8', action, 'x-req-source': 'Mail' }, a.hdr);
     const full = { __type: action + 'JsonRequest:#Exchange', Header: { __type: 'JsonRequestHeaders:#Exchange', RequestServerVersion: 'V2018_01_08', TimeZoneContext: { __type: 'TimeZoneContext:#Exchange', TimeZoneDefinition: { __type: 'TimeZoneDefinitionType:#Exchange', Id: 'E. Australia Standard Time' } } }, Body: body };
-    const r = await (of || W.fetch).call(W, a.base + '?action=' + action + '&app=Mail&n=ec' + (++svcN), { method: 'POST', headers: h, body: JSON.stringify(full), credentials: 'include' });
+    const go = () => (of || W.fetch).call(W, a.base + '?action=' + action + '&app=Mail&n=ec' + (++svcN), { method: 'POST', headers: h, body: JSON.stringify(full), credentials: 'include' });
+    let r; try { r = await go(); } catch (e) { await sleep(3000); r = await go(); }
     const t = await r.text(); let j = null; try { j = JSON.parse(t); } catch (e) {}
     if (!r.ok || !j) throw new Error(action + ' said ' + r.status);
     const m = j.Body && j.Body.ResponseMessages && j.Body.ResponseMessages.Items && j.Body.ResponseMessages.Items[0];
@@ -524,7 +528,15 @@ if (ON_MAIL) {
   // Which email the grab is for: set before each grab (subject from the reading pane, and when it came in)
   let grabCtx = null;
   const normS = s => String(s || '').replace(/\s+/g, ' ').trim().toLowerCase();
-  const directGrab = async name => { const c = grabCtx; if (!c || !c.subj) return null;
+  // The email's own attachments (not the inline signature pictures), for when the reading pane hasn't drawn its cards
+  const directList = async () => { try { const x = await findMail(); return x ? x.atts.filter(a => !a.IsInline).map(a => a.Name).filter(Boolean) : []; } catch (e) { log('Couldn\'t list the attachments straight from Outlook (' + e.message + ')'); return []; } };
+  const directGrab = async name => { const x = await findMail(name); if (!x) return null;
+    const as = x.atts.filter(a => a.Name == name); const a = as.find(a => !a.IsInline) || as[0]; if (!a) return null;
+    const g = await olSvc('GetAttachment', { __type: 'GetAttachmentRequest:#Exchange', AttachmentIds: [{ __type: 'AttachmentId:#Exchange', Id: a.AttachmentId.Id }] });
+    const f = g && g.Attachments && g.Attachments[0]; return f && f.Content ? String(f.Content).replace(/\s+/g, '') : null; };
+  // Finds the grab's email in Outlook (by subject, nearest to when it came in) with its attachment list. With a name, the
+  // nearest one that has an attachment called that.
+  const findMail = async name => { const c = grabCtx; if (!c || !c.subj) return null;
     // the search word: the longest bit of the subject (the PO number, usually); whole subject matched after
     const tok = String(c.subj).split(/\s+/).filter(w => !/[":]/.test(w)).sort((x, y) => y.length - x.length)[0] || '';
     if (tok.length < 4) return null;
@@ -540,10 +552,8 @@ if (ON_MAIL) {
     if (c.at) hits.sort((x, y) => off(x) - off(y));
     for (const x of hits.slice(0, 3)) {
       const m = await olSvc('GetItem', { __type: 'GetItemRequest:#Exchange', ItemShape: { __type: 'ItemResponseShape:#Exchange', BaseShape: 'IdOnly', AdditionalProperties: [{ __type: 'PropertyUri:#Exchange', FieldURI: 'Attachments' }] }, ItemIds: [{ __type: 'ItemId:#Exchange', Id: x.ItemId.Id }] });
-      const it = m && m.Items && m.Items[0]; const as = ((it && it.Attachments) || []).filter(a => a.Name == name);
-      const a = as.find(a => !a.IsInline) || as[0]; if (!a) continue;
-      const g = await olSvc('GetAttachment', { __type: 'GetAttachmentRequest:#Exchange', AttachmentIds: [{ __type: 'AttachmentId:#Exchange', Id: a.AttachmentId.Id }] });
-      const f = g && g.Attachments && g.Attachments[0]; if (f && f.Content) return String(f.Content).replace(/\s+/g, ''); }
+      const it = m && m.Items && m.Items[0]; const atts = (it && it.Attachments) || [];
+      if (!name || atts.some(a => a.Name == name)) return { atts }; }
     return null; };
   if (IS_FILER) {
     // Images only count while the filer has a preview open (catching), or every avatar and icon Outlook loads would land here.
@@ -739,6 +749,10 @@ if (ON_MAIL) {
     if (p.att) { const hasAtt = () => { const R0 = rp(); return !!R0 && [...R0.querySelectorAll('[title]')].some(x => /\.(pdf|jpe?g|png|heic|webp|gif)$/i.test(x.getAttribute('title') || '')); };
       if (!hasAtt() && !(await waitFor(hasAtt, 15000))) log('Row says it has attachments but none showed in the reading pane: ' + p.head.slice(0, 60)); }
     const info = readPane(); const id = 'j' + now().toString(36); grabCtx = { subj: info.subject || p.head, at: (rowTime(p.when) || new Date()).getTime() };
+    // 23/11: PO -13's pane never drew its attachment card on the TV, so it was read with no PDF. Ask Outlook for the names.
+    if (p.att && !info.pdfs.length && info.subject.trim()) { const ns = await directList();
+      info.pdfs = ns.filter(n => /\.pdf$/i.test(n)); info.imgs = (info.imgs || []).concat(ns.filter(n => /\.(jpe?g|png|heic|webp|gif)$/i.test(n) && !/^(image|outlook|logo|sig)[\w-]*\d*\.(png|jpe?g|gif)$/i.test(n) && !(info.imgs || []).includes(n)));
+      if (info.pdfs.length) log('No attachment cards in the reading pane, Outlook says it has: ' + info.pdfs.join(', ')); }
     // Nothing in the reading pane (the click didn't open it, or the list moved under us): leave it for the next scan rather than reading a blank.
     if (!info.subject.trim() && !info.body) { log('Reading pane came up empty, left it: ' + p.head.slice(0, 60)); return test ? 'reading pane came up empty, try again' : false; }
     // 30/10: FieldViser reports come in under the business name, so they aren't our own emails
