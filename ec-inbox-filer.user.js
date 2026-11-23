@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EC Inbox Filer
 // @namespace    ec
-// @version      0.9.97
+// @version      0.9.98
 // @description  Watches the shared Outlook for builder POs, revised POs and Energex safety advice, reads them with Claude Sonnet and files them onto the right AroFlo task. Unmatched ones, dates to book and anything odd go to follow ups. Runs only in the two filer tabs (Outlook and AroFlo opened with #ec-filer).
 // @match        https://outlook.cloud.microsoft/*
 // @match        https://outlook.office.com/*
@@ -31,7 +31,7 @@
   // Live updates (23/10): Tampermonkey only checks for a new version every few hours. This checks the repo's latest commit every
   // 2 min (free when nothing's changed) and keeps the newest code here, so a push runs on the next page load. If the new code needs
   // a permission this install hasn't got, or this browser won't run it, the built in copy below runs like before.
-  const __ecName = "ec-inbox-filer", __ecVer = "0.9.97", __ecHave = new Set(["// @connect api.anthropic.com", "// @connect api.github.com", "// @connect api.todoist.com", "// @connect files.todoist.com", "// @connect production-reportapi.ambrosebuilding.com.au", "// @connect raw.githubusercontent.com", "// @grant GM_deleteValue", "// @grant GM_getValue", "// @grant GM_listValues", "// @grant GM_openInTab", "// @grant GM_registerMenuCommand", "// @grant GM_setValue", "// @grant GM_xmlhttpRequest", "// @grant unsafeWindow", "// @match https://office.aroflo.com/*", "// @match https://outlook.cloud.microsoft/*", "// @match https://outlook.office.com/*", "// @match https://outlook.office365.com/*", "// @run-at document-start"]);
+  const __ecName = "ec-inbox-filer", __ecVer = "0.9.98", __ecHave = new Set(["// @connect api.anthropic.com", "// @connect api.github.com", "// @connect api.todoist.com", "// @connect files.todoist.com", "// @connect production-reportapi.ambrosebuilding.com.au", "// @connect raw.githubusercontent.com", "// @grant GM_deleteValue", "// @grant GM_getValue", "// @grant GM_listValues", "// @grant GM_openInTab", "// @grant GM_registerMenuCommand", "// @grant GM_setValue", "// @grant GM_xmlhttpRequest", "// @grant unsafeWindow", "// @match https://office.aroflo.com/*", "// @match https://outlook.cloud.microsoft/*", "// @match https://outlook.office.com/*", "// @match https://outlook.office365.com/*", "// @run-at document-start"]);
   const __ecInfo0 = typeof GM_info != 'undefined' ? GM_info : null;
   const __ecSay = m => { try { console.log('[live update] ' + __ecName + ': ' + m); } catch (e) {} };
   const __ecCmp = (a, b) => { const x = String(a).split('.').map(Number), y = String(b).split('.').map(Number); for (let i = 0; i < Math.max(x.length, y.length); i++) { const d = (x[i] || 0) - (y[i] || 0); if (d) return d; } return 0; };
@@ -82,7 +82,7 @@
   }
   if (window.top === window.self) { __ecCheck(); setInterval(__ecCheck, 2 * 60e3 + 5000); }
   if (__ecLive()) return;
-  // ---------- the built in copy (src/ec-inbox-filer.js at 0.9.97) ----------
+  // ---------- the built in copy (src/ec-inbox-filer.js at 0.9.98) ----------
 
 // ---------- one off (18/11/2026): moves this device's saved data over from the old names. Take this block out once every device has run it ----------
 try {
@@ -559,6 +559,52 @@ if (ON_MAIL) {
       const r = await of.call(W, url, { credentials: 'include', headers: hdrs((lp.init && lp.init.headers) || (req && req.headers)) });
       if (!r.ok || r.status == 206) return null; const b = await r.blob(); if (b.size < 500) return null;
       const h = String.fromCharCode(...new Uint8Array(await b.slice(0, 8).arrayBuffer())); return h.startsWith('%PDF') && (await pdfWhole(b)) ? b : null; } catch (e) { return null; } };
+  // 23/11 (0.9.98): the preview grab kept getting nothing on the TV (three Ambrose POs in one afternoon, Kookaburra Ct in the
+  // morning). So the filer now asks Outlook's own mail service for the attachment first, the same read only Find/Get calls the
+  // TV's outlook jobs use (verified 23/11, came back whole and the email stayed unread). The preview is the fallback.
+  let svcAuth = null;
+  const hdrsLow = h => { const o = {}; try { if (h && typeof h.forEach == 'function' && !Array.isArray(h)) h.forEach((v, k) => { o[String(k).toLowerCase()] = v; }); else if (Array.isArray(h)) h.forEach(kv => { o[String(kv[0]).toLowerCase()] = kv[1]; }); else if (h) Object.keys(h).forEach(k => { o[k.toLowerCase()] = h[k]; }); } catch (e) {} return o; };
+  const keepSvc = (u, h) => { try { u = new URL(u, location.href).href; } catch (e) { return; } if (!/\/service\.svc/.test(u) || !(h.authorization || h['x-owa-canary'])) return;
+    const k = {}; ['authorization', 'x-owa-canary', 'x-anchormailbox', 'x-owa-sessionid', 'x-owa-hosted-ux', 'prefer'].forEach(n => { if (h[n]) k[n] = h[n]; });
+    svcAuth = { hdr: k, base: u.replace(/service\.svc.*$/, 'service.svc'), at: now() }; };
+  // Outlook's own saved sign-in in this page's storage, when it hasn't made a mail call we could copy yet
+  const savedAuth = () => { let best = null; try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (!/accesstoken/i.test(k)) continue; const v = JSON.parse(localStorage.getItem(k));
+      if (!v || !v.secret || !/outlook\.office(365)?\.com/i.test(v.target || k) || Number(v.expiresOn) * 1000 < Date.now() + 60000) continue; if (!best || Number(v.expiresOn) > Number(best.expiresOn)) best = v; } } catch (e) {}
+    return best ? { hdr: { authorization: 'Bearer ' + best.secret }, base: location.origin + '/owa/service.svc' } : null; };
+  let svcN = 0;
+  const olSvc = async (action, body) => { if (!/^(Find|Get)/.test(action)) throw new Error(action + ' isn\'t a read');
+    const a = svcAuth || savedAuth(); if (!a) throw new Error('no Outlook sign-in to copy yet');
+    const h = Object.assign({ 'content-type': 'application/json; charset=utf-8', action, 'x-req-source': 'Mail' }, a.hdr);
+    const full = { __type: action + 'JsonRequest:#Exchange', Header: { __type: 'JsonRequestHeaders:#Exchange', RequestServerVersion: 'V2018_01_08', TimeZoneContext: { __type: 'TimeZoneContext:#Exchange', TimeZoneDefinition: { __type: 'TimeZoneDefinitionType:#Exchange', Id: 'E. Australia Standard Time' } } }, Body: body };
+    const r = await (of || W.fetch).call(W, a.base + '?action=' + action + '&app=Mail&n=ec' + (++svcN), { method: 'POST', headers: h, body: JSON.stringify(full), credentials: 'include' });
+    const t = await r.text(); let j = null; try { j = JSON.parse(t); } catch (e) {}
+    if (!r.ok || !j) throw new Error(action + ' said ' + r.status);
+    const m = j.Body && j.Body.ResponseMessages && j.Body.ResponseMessages.Items && j.Body.ResponseMessages.Items[0];
+    if (m && m.ResponseClass == 'Error') throw new Error(action + ': ' + (m.MessageText || m.ResponseCode)); return m; };
+  // Which email the grab is for: set before each grab (subject from the reading pane, and when it came in)
+  let grabCtx = null;
+  const normS = s => String(s || '').replace(/\s+/g, ' ').trim().toLowerCase();
+  const directGrab = async name => { const c = grabCtx; if (!c || !c.subj) return null;
+    // the search word: the longest bit of the subject (the PO number, usually); whole subject matched after
+    const tok = String(c.subj).split(/\s+/).filter(w => !/[":]/.test(w)).sort((x, y) => y.length - x.length)[0] || '';
+    if (tok.length < 4) return null;
+    const con = { __type: 'Contains:#Exchange', ContainmentMode: 'Substring', ContainmentComparison: 'IgnoreCase', Item: { __type: 'PropertyUri:#Exchange', FieldURI: 'Subject' }, Constant: { __type: 'ConstantValueType:#Exchange', Value: tok } };
+    let items = [];
+    for (const f of ['inbox', 'archive']) { try { const m = await olSvc('FindItem', { __type: 'FindItemRequest:#Exchange', ItemShape: { __type: 'ItemResponseShape:#Exchange', BaseShape: 'Default', AdditionalProperties: [{ __type: 'PropertyUri:#Exchange', FieldURI: 'DateTimeReceived' }] }, ParentFolderIds: [{ __type: 'DistinguishedFolderId:#Exchange', Id: f }], Traversal: 'Shallow',
+        Paging: { __type: 'IndexedPageView:#Exchange', BasePoint: 'Beginning', Offset: 0, MaxEntriesReturned: 25 }, Restriction: { __type: 'RestrictionType:#Exchange', Item: con },
+        SortOrder: [{ __type: 'SortResults:#Exchange', Order: 'Descending', Path: { __type: 'PropertyUri:#Exchange', FieldURI: 'DateTimeReceived' } }] });
+      items = items.concat(((m && m.RootFolder && m.RootFolder.Items) || []).filter(x => x.HasAttachments)); } catch (e) { if (f == 'inbox') throw e; } if (items.length) break; }
+    const want = normS(c.subj); let hits = items.filter(x => normS(x.Subject) == want);
+    if (!hits.length) hits = items.filter(x => { const s = normS(x.Subject); return s && (s.includes(want) || want.includes(s)); });
+    const off = x => { const t = Date.parse(x.DateTimeReceived || ''); return isNaN(t) ? 9e15 : Math.abs(t - c.at); };
+    if (c.at) hits.sort((x, y) => off(x) - off(y));
+    for (const x of hits.slice(0, 3)) {
+      const m = await olSvc('GetItem', { __type: 'GetItemRequest:#Exchange', ItemShape: { __type: 'ItemResponseShape:#Exchange', BaseShape: 'IdOnly', AdditionalProperties: [{ __type: 'PropertyUri:#Exchange', FieldURI: 'Attachments' }] }, ItemIds: [{ __type: 'ItemId:#Exchange', Id: x.ItemId.Id }] });
+      const it = m && m.Items && m.Items[0]; const as = ((it && it.Attachments) || []).filter(a => a.Name == name);
+      const a = as.find(a => !a.IsInline) || as[0]; if (!a) continue;
+      const g = await olSvc('GetAttachment', { __type: 'GetAttachmentRequest:#Exchange', AttachmentIds: [{ __type: 'AttachmentId:#Exchange', Id: a.AttachmentId.Id }] });
+      const f = g && g.Attachments && g.Attachments[0]; if (f && f.Content) return String(f.Content).replace(/\s+/g, ''); }
+    return null; };
   if (IS_FILER) {
     // Images only count while the filer has a preview open (catching), or every avatar and icon Outlook loads would land here.
     // Only keep a file that really is what the grab is after (first bytes), or a freshly opened tab's avatars and icons land
@@ -568,11 +614,11 @@ if (ON_MAIL) {
       if (catching == 'image' ? (isImg && !part) : (isPdf && !part && (await pdfWhole(blob)))) lastPdf = { blob, at }; } catch (e) {} };
     const want = ct => /pdf|octet-stream/i.test(ct) || (catching && /^image\//i.test(ct));
     of = W.fetch;
-    W.fetch = function (input, init) { const p = of.apply(this, arguments); p.then(r => { try { const ct = r.headers.get('content-type') || ''; if (want(ct)) { const part = r.status == 206 || !!r.headers.get('content-range'); if (part && catching == 'pdf') lastPart = { input, init, at: now() }; r.clone().blob().then(b => keep(b, now(), part)); } } catch (e) {} }).catch(() => {}); return p; };
+    W.fetch = function (input, init) { try { const isReq = input && typeof input == 'object' && 'url' in input; const h = isReq ? hdrsLow(input.headers) : {}; Object.assign(h, hdrsLow(init && init.headers)); keepSvc(isReq ? input.url : String(input), h); } catch (e) {} const p = of.apply(this, arguments); p.then(r => { try { const ct = r.headers.get('content-type') || ''; if (want(ct)) { const part = r.status == 206 || !!r.headers.get('content-range'); if (part && catching == 'pdf') lastPart = { input, init, at: now() }; r.clone().blob().then(b => keep(b, now(), part)); } } catch (e) {} }).catch(() => {}); return p; };
     const os = W.XMLHttpRequest.prototype.send, oo = W.XMLHttpRequest.prototype.open, oh = W.XMLHttpRequest.prototype.setRequestHeader;
     W.XMLHttpRequest.prototype.open = function (m, u) { try { this.__wfU = u; this.__wfH = {}; } catch (e) {} return oo.apply(this, arguments); };
     W.XMLHttpRequest.prototype.setRequestHeader = function (k, v) { try { if (this.__wfH) this.__wfH[k] = v; } catch (e) {} return oh.apply(this, arguments); };
-    W.XMLHttpRequest.prototype.send = function () { this.addEventListener('load', () => { try { const ct = this.getResponseHeader('content-type') || ''; if (want(ct) && this.response instanceof W.Blob) { const part = this.status == 206 || !!this.getResponseHeader('content-range'); if (part && catching == 'pdf') lastPart = { input: this.__wfU, init: { headers: this.__wfH }, at: now() }; keep(this.response, now(), part); } } catch (e) {} }); return os.apply(this, arguments); };
+    W.XMLHttpRequest.prototype.send = function () { try { const h = {}; Object.keys(this.__wfH || {}).forEach(k => { h[k.toLowerCase()] = this.__wfH[k]; }); keepSvc(String(this.__wfU || ''), h); } catch (e) {} this.addEventListener('load', () => { try { const ct = this.getResponseHeader('content-type') || ''; if (want(ct) && this.response instanceof W.Blob) { const part = this.status == 206 || !!this.getResponseHeader('content-range'); if (part && catching == 'pdf') lastPart = { input: this.__wfU, init: { headers: this.__wfH }, at: now() }; keep(this.response, now(), part); } } catch (e) {} }); return os.apply(this, arguments); };
   }
 
   // 27/10: Ethan could see the new mail on screen while the filer did nothing till a refresh. In case Outlook keeps an old copy
@@ -648,6 +694,11 @@ if (ON_MAIL) {
   const grabPdf = async name => { const f = await grabFile(name); return f && f.type == 'application/pdf' ? f.b64 : null; };
   // Any attachment: previews it, keeps what Outlook downloads, and checks it really is a PDF or a photo (19/10).
   const grabFile = async name => {
+    try { const b64 = await directGrab(name); if (b64) { const head = atob(b64.slice(0, 12));
+        const type = head.startsWith('%PDF') ? 'application/pdf' : head.startsWith('\xFF\xD8') ? 'image/jpeg' : head.startsWith('\x89PNG') ? 'image/png' : /\.(heic|webp|gif)$/i.test(name) ? 'image/' + name.split('.').pop().toLowerCase() : '';
+        const okType = type && !(/^image/.test(type) && !/\.(jpe?g|png|heic|webp|gif)$/i.test(name)) && !(type == 'application/pdf' && (!/\.pdf$/i.test(name) || pdfFault(b64)));
+        if (okType) { log('Got ' + name + ' straight from Outlook (' + kb(b64.length * 3 / 4) + ')'); return { b64, type }; } log('Outlook gave back ' + name + ' but it didn\'t look right, trying the preview'); }
+      else log('Couldn\'t get ' + name + ' straight from Outlook, trying the preview'); } catch (e) { log('Straight from Outlook failed for ' + name + ' (' + e.message + '), trying the preview'); }
     const findCard = () => { const R = rp(); return R && [...R.querySelectorAll('[title]')].find(x => x.getAttribute('title') == name); };
     // the card can be a beat behind the reading pane's text (Outlook fills the attachment well last), so give it a few seconds (19/10)
     await waitFor(() => !!findCard(), 6000); const card = findCard(); if (!card) { log('No card for ' + name + ' in the reading pane'); return null; }
@@ -675,7 +726,7 @@ if (ON_MAIL) {
 
   // Step 2 (after the reload): Haiku reads it and the job goes in the queue for the AroFlo tab.
   // Attachments that didn't come through in the first page load: open the email again on a fresh load and grab the next one.
-  async function grabMore(P) {
+  async function grabMore(P) { grabCtx = { subj: P.info.subject, at: P.emailAt || 0 };
     P.moreTries = (P.moreTries || 0) + 1; gset('wfPending', P);
     await goInbox(); const el = await findRowDeep(o => keyOf(o) == P.rowKey); if (!el) { log('Couldn\'t find the email again for ' + P.more.length + ' attachment(s), left them'); P.more = []; gset('wfPending', P); return false; }
     const b0 = bodyOf(); el.click(); await waitFor(() => bodyOf().length > 0 && bodyOf() != b0, 8000); await quiet(300, 3000);
@@ -689,7 +740,7 @@ if (ON_MAIL) {
       if (!atob(b64.slice(-5464)).includes('%%EOF')) return 'cut short, ' + kb(n) + ' with no end to it';
       if (deep && atob(b64).includes('/Encrypt')) return 'password locked, ' + kb(n); return deep ? 'looks whole, ' + kb(n) + ', Claude still won\'t open it' : ''; } catch (e) { return 'unreadable (' + e.message + ')'; } };
   // A PDF that won't open: open the email again on a fresh page and grab the PDF again, once. Then it reads on (23/10).
-  async function regrabPdf(P) {
+  async function regrabPdf(P) { grabCtx = { subj: P.info.subject, at: P.emailAt || 0 };
     P.regrab = 0; gset('wfPending', P);
     await goInbox(); const el = await findRowDeep(o => keyOf(o) == P.rowKey);
     if (el) { const b0 = bodyOf(); el.click(); await waitFor(() => bodyOf().length > 0 && bodyOf() != b0, 8000); await quiet(300, 3000);
@@ -747,7 +798,7 @@ if (ON_MAIL) {
     // saw no PDF and skipped a Schedule Update. When the row says it has attachments, give the strip up to 15 s to show.
     if (p.att) { const hasAtt = () => { const R0 = rp(); return !!R0 && [...R0.querySelectorAll('[title]')].some(x => /\.(pdf|jpe?g|png|heic|webp|gif)$/i.test(x.getAttribute('title') || '')); };
       if (!hasAtt() && !(await waitFor(hasAtt, 15000))) log('Row says it has attachments but none showed in the reading pane: ' + p.head.slice(0, 60)); }
-    const info = readPane(); const id = 'j' + now().toString(36);
+    const info = readPane(); const id = 'j' + now().toString(36); grabCtx = { subj: info.subject || p.head, at: (rowTime(p.when) || new Date()).getTime() };
     // Nothing in the reading pane (the click didn't open it, or the list moved under us): leave it for the next scan rather than reading a blank.
     if (!info.subject.trim() && !info.body) { log('Reading pane came up empty, left it: ' + p.head.slice(0, 60)); return test ? 'reading pane came up empty, try again' : false; }
     // 30/10: FieldViser reports come in under the business name, so they aren't our own emails
