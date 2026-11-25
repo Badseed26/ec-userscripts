@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EC Calendar NPT
 // @namespace    ec
-// @version      3.3.1
+// @version      3.4.0
 // @description  Notes, photos and timesheet badges on the AroFlo calendar for the days in view, kept in step with the daily check issue list in Todoist, plus an A letter on Ambrose jobs for photos or the report being up on Ambrose
 // @match        https://office.aroflo.com/ims/Site/Calendar/*
 // @match        https://tradiesadmin.ambroseconstruct.com.au/*
@@ -38,6 +38,7 @@ try {
   // ---------- settings ----------
   const NO_BADGE = /^(Jack|Lisa|Renee)\b/; // never badged
   const NO_CREDIT = /^Lisa\b/;             // Lisa's bookings are placeholders and her notes don't count
+  const HELPER = /^Braydon\b/;             // on site with a lad without a booking of his own: his notes count for whoever's booked (26/11)
   const TTL = 3 * 60 * 1000;               // recheck anything not done after 3 min
   const MAX_JOBS = 3;                      // jobs read at once (3 small requests each)
   const KEY = 'ecNPT1';
@@ -368,13 +369,15 @@ try {
     return jobs;
   }
 
+  // Whose notes count for a visit: anyone booked on the job that day, plus a helper who's there without a booking.
+  const byCrew = v => x => v.crew.includes(x) || HELPER.test(x);
+
   // Straight from AroFlo: true / false / null (not read yet)
   function raw(v) {
     const J = C.j[v.ev.wrid] || {};
     const has = (src, f) => (J[src] ? !!f(J[src].d[v.date]) : null);
-    const crewSet = new Set(v.crew);
     return {
-      n: has('n', a => a && a.some(x => crewSet.has(x))),
+      n: has('n', a => a && a.some(byCrew(v))),
       p: has('p', o => !!o && Object.keys(o).length > 0), // any photo that day counts, whoever put it in (e.g. you uploading for a lad)
       t: has('l', a => a && a.includes(ini(v.who) + '|travel') && a.includes(ini(v.who) + '|site')),
     };
@@ -435,7 +438,7 @@ try {
       : x => (x === null || err ? '' : x === 'm' ? 'm' : x ? 'g' : v.today ? 'a' : 'r');
     const no = (x, none) => (x === null || (v.pending && x === false) ? (v.pending ? 'not due yet' : 'not read yet') : none);
     const crewTxt = v.crew.map(first).join(', ');
-    const nA = J.n && (J.n.d[v.date] || []).filter(x => v.crew.includes(x)).map(first);
+    const nA = J.n && (J.n.d[v.date] || []).filter(byCrew(v)).map(first);
     const pO = J.p && J.p.d[v.date] || {};
     const pTxt = 'in (' + Object.keys(pO).map(first).join(', ') + ')';
     // Shared job: a crew mate put photos in that day and this person didn't. Still counts as in (no issue, no text, no
